@@ -32,6 +32,12 @@
         <span id="statusText" class="status-text">Starting camera...</span>
       </div>
       <span id="statusAction" class="status-action"></span>
+      <button id="settingsToggle" class="settings-toggle" aria-label="Camera settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
     </div>
 
     <div class="video-container">
@@ -49,7 +55,100 @@
     </div>
 
     <div class="instructions">
-      Press <kbd>SPACE</kbd> or tap the button to capture and analyze
+      Press <kbd>SPACE</kbd> or tap to capture — press again to cancel
+    </div>
+
+    <!-- Settings Backdrop -->
+    <div id="settingsBackdrop" class="settings-backdrop"></div>
+
+    <!-- Settings Panel -->
+    <div id="settingsPanel" class="settings-panel">
+      <div class="settings-panel-header">
+        <h2>Camera Settings</h2>
+        <button id="settingsCloseBtn" class="settings-close-btn" aria-label="Close settings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="settings-panel-body">
+        <!-- Preset Section -->
+        <div class="settings-section">
+          <div class="settings-section-title">Preset</div>
+          <button id="screenModeBtn" class="screen-mode-btn">Screen Capture Mode</button>
+          <button id="resetSettingsBtn" class="reset-btn">Reset to Default</button>
+        </div>
+
+        <!-- Camera Hardware Controls -->
+        <div class="settings-section">
+          <div class="settings-section-title">Camera Hardware Controls</div>
+          <div id="cameraControlsContainer"></div>
+        </div>
+
+        <!-- Image Processing -->
+        <div class="settings-section">
+          <div class="settings-section-title">Image Processing</div>
+          <div class="setting-row">
+            <span class="setting-label">Auto Contrast</span>
+            <label class="setting-toggle">
+              <input type="checkbox" id="ppAutoContrast">
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+          <div class="setting-row">
+            <span class="setting-label">Sharpen</span>
+            <label class="setting-toggle">
+              <input type="checkbox" id="ppSharpen">
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+          <div class="setting-row">
+            <span class="setting-label">Grayscale</span>
+            <label class="setting-toggle">
+              <input type="checkbox" id="ppGrayscale">
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+          <div class="setting-row">
+            <span class="setting-label">Binarize (Otsu)</span>
+            <label class="setting-toggle">
+              <input type="checkbox" id="ppBinarize">
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+          <div class="setting-row">
+            <span class="setting-label">Auto-Invert Dark Mode</span>
+            <label class="setting-toggle">
+              <input type="checkbox" id="ppAutoInvert">
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Capture Quality -->
+        <div class="settings-section">
+          <div class="settings-section-title">Capture Quality</div>
+          <div class="setting-row">
+            <span class="setting-label">JPEG Quality</span>
+            <span class="setting-value" id="jpegQualityValue">92%</span>
+            <input type="range" class="setting-range" id="jpegQualitySlider" min="50" max="100" value="92" step="1">
+          </div>
+        </div>
+
+        <!-- Preview Section -->
+        <div class="settings-section">
+          <div class="settings-section-title">Preview</div>
+          <div class="setting-row">
+            <span class="setting-label">Show Processed Preview</span>
+            <label class="setting-toggle">
+              <input type="checkbox" id="showPreviewToggle">
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+          <canvas id="previewCanvas" class="preview-canvas"></canvas>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -83,6 +182,26 @@
       let healthCheckTimer = null;
       let abortController = null;
       let wakeLock = null;
+      let elapsedTimer = null;
+      let elapsedSeconds = 0;
+      let videoTrack = null;
+      let trackCapabilities = null;
+      let currentConstraints = {};
+      let preScreenModeSettings = null;
+
+      // ── Preprocessing & Camera Settings ──
+      const defaultPPSettings = {
+        autoContrast: false,
+        sharpen: false,
+        grayscale: false,
+        binarize: false,
+        autoInvert: false,
+        jpegQuality: 0.92,
+        showPreview: false,
+        isScreenMode: false,
+        cameraConstraints: {}
+      };
+      let ppSettings = { ...defaultPPSettings };
 
       // ── BroadcastChannel ──
       let channel = null;
@@ -106,9 +225,28 @@
       const inlineAnswerText = document.getElementById('inlineAnswerText');
       const captureBtn = document.getElementById('captureBtn');
       const offlineBanner = document.getElementById('offlineBanner');
+      const settingsToggle = document.getElementById('settingsToggle');
+      const settingsBackdrop = document.getElementById('settingsBackdrop');
+      const settingsPanel = document.getElementById('settingsPanel');
+      const settingsCloseBtn = document.getElementById('settingsCloseBtn');
+      const screenModeBtn = document.getElementById('screenModeBtn');
+      const resetSettingsBtn = document.getElementById('resetSettingsBtn');
+      const cameraControlsContainer = document.getElementById('cameraControlsContainer');
+      const ppAutoContrast = document.getElementById('ppAutoContrast');
+      const ppSharpen = document.getElementById('ppSharpen');
+      const ppGrayscale = document.getElementById('ppGrayscale');
+      const ppBinarize = document.getElementById('ppBinarize');
+      const ppAutoInvert = document.getElementById('ppAutoInvert');
+      const jpegQualitySlider = document.getElementById('jpegQualitySlider');
+      const jpegQualityValue = document.getElementById('jpegQualityValue');
+      const showPreviewToggle = document.getElementById('showPreviewToggle');
+      const previewCanvas = document.getElementById('previewCanvas');
 
       // ── Init ──
       function init() {
+        loadSettings();
+        initSettingsPanel();
+
         if (isServer) {
           showController();
         } else {
@@ -250,6 +388,10 @@
             cameraStream = stream;
             video.srcObject = stream;
             await waitForVideo();
+            detectCapabilities();
+            initCameraControls();
+            await restoreCameraConstraints();
+            applyVideoFilters();
             setStatus('ready', 'Ready (' + video.videoWidth + 'x' + video.videoHeight + ')');
             statusAction.textContent = 'Press SPACE or tap to capture';
             requestWakeLock();
@@ -265,6 +407,10 @@
                 cameraStream = stream;
                 video.srcObject = stream;
                 await waitForVideo();
+                detectCapabilities();
+                initCameraControls();
+                await restoreCameraConstraints();
+                applyVideoFilters();
                 setStatus('ready', 'Ready (' + video.videoWidth + 'x' + video.videoHeight + ')');
                 statusAction.textContent = 'Press SPACE or tap to capture';
                 requestWakeLock();
@@ -313,6 +459,182 @@
       }
 
       async function reconnectCamera() { stopCamera(); await startCamera(); }
+
+      // ── Camera Capability Detection ──
+      function detectCapabilities() {
+        videoTrack = null;
+        trackCapabilities = null;
+        if (!cameraStream) return;
+        const tracks = cameraStream.getVideoTracks();
+        if (tracks.length === 0) return;
+        videoTrack = tracks[0];
+        try {
+          if (typeof videoTrack.getCapabilities === 'function') {
+            trackCapabilities = videoTrack.getCapabilities();
+          }
+        } catch (e) {
+          console.warn('getCapabilities() not supported:', e);
+        }
+      }
+
+      function initCameraControls() {
+        cameraControlsContainer.innerHTML = '';
+
+        if (!trackCapabilities) {
+          cameraControlsContainer.innerHTML = '<div class="hw-not-supported">Camera hardware controls not supported on this browser.</div>';
+          return;
+        }
+
+        const controls = [
+          { key: 'exposureCompensation', label: 'Exposure Compensation', type: 'range', unit: 'EV' },
+          { key: 'iso', label: 'ISO', type: 'range', unit: '' },
+          { key: 'focusMode', label: 'Focus Mode', type: 'select' },
+          { key: 'focusDistance', label: 'Focus Distance', type: 'range', unit: '', dependsOn: 'focusMode', dependsValue: 'manual' },
+          { key: 'zoom', label: 'Zoom', type: 'range', unit: 'x' },
+          { key: 'whiteBalanceMode', label: 'White Balance', type: 'select' },
+          { key: 'colorTemperature', label: 'Color Temperature', type: 'range', unit: 'K', dependsOn: 'whiteBalanceMode', dependsValue: 'manual' },
+          { key: 'torch', label: 'Torch', type: 'toggle' }
+        ];
+
+        let hasAny = false;
+        controls.forEach(ctrl => {
+          const cap = trackCapabilities[ctrl.key];
+          if (!cap && ctrl.type !== 'toggle') return;
+          if (ctrl.type === 'toggle' && !trackCapabilities[ctrl.key] && !(ctrl.key === 'torch' && trackCapabilities.torch)) return;
+
+          // For toggle (torch), check if it's an array of booleans or just supported
+          if (ctrl.type === 'toggle' && ctrl.key === 'torch') {
+            if (!trackCapabilities.torch) return;
+          }
+
+          hasAny = true;
+          const row = document.createElement('div');
+          row.className = 'setting-row';
+          row.id = 'hw-row-' + ctrl.key;
+
+          if (ctrl.dependsOn) {
+            const currentMode = ppSettings.cameraConstraints[ctrl.dependsOn];
+            if (currentMode !== ctrl.dependsValue) {
+              row.style.display = 'none';
+            }
+          }
+
+          if (ctrl.type === 'range') {
+            const capData = trackCapabilities[ctrl.key];
+            if (!capData || typeof capData.min === 'undefined') return;
+            const min = capData.min;
+            const max = capData.max;
+            const step = capData.step || (max - min > 100 ? 1 : 0.1);
+            const currentVal = ppSettings.cameraConstraints[ctrl.key] !== undefined
+              ? ppSettings.cameraConstraints[ctrl.key]
+              : (videoTrack.getSettings()[ctrl.key] || min);
+
+            row.innerHTML =
+              '<span class="setting-label">' + ctrl.label + '</span>' +
+              '<span class="setting-value" id="hw-val-' + ctrl.key + '">' + formatVal(currentVal, ctrl) + '</span>' +
+              '<input type="range" class="setting-range" id="hw-' + ctrl.key + '" ' +
+              'min="' + min + '" max="' + max + '" step="' + step + '" value="' + currentVal + '">';
+
+            cameraControlsContainer.appendChild(row);
+
+            const slider = row.querySelector('input');
+            const valEl = row.querySelector('.setting-value');
+            slider.addEventListener('input', () => {
+              const v = parseFloat(slider.value);
+              valEl.textContent = formatVal(v, ctrl);
+              applyCameraConstraint(ctrl.key, v);
+            });
+          } else if (ctrl.type === 'select') {
+            const options = Array.isArray(cap) ? cap : (trackCapabilities[ctrl.key] || []);
+            if (!options.length) return;
+            const currentVal = ppSettings.cameraConstraints[ctrl.key] ||
+              (videoTrack.getSettings()[ctrl.key] || options[0]);
+
+            let optionsHtml = '';
+            options.forEach(opt => {
+              optionsHtml += '<option value="' + opt + '"' +
+                (opt === currentVal ? ' selected' : '') + '>' + opt + '</option>';
+            });
+
+            row.innerHTML =
+              '<span class="setting-label">' + ctrl.label + '</span>' +
+              '<select class="setting-select" id="hw-' + ctrl.key + '">' + optionsHtml + '</select>';
+
+            cameraControlsContainer.appendChild(row);
+
+            const select = row.querySelector('select');
+            select.addEventListener('change', () => {
+              applyCameraConstraint(ctrl.key, select.value);
+              // Show/hide dependent controls
+              controls.forEach(dep => {
+                if (dep.dependsOn === ctrl.key) {
+                  const depRow = document.getElementById('hw-row-' + dep.key);
+                  if (depRow) {
+                    depRow.style.display = (select.value === dep.dependsValue) ? 'flex' : 'none';
+                  }
+                }
+              });
+            });
+          } else if (ctrl.type === 'toggle') {
+            const currentVal = ppSettings.cameraConstraints[ctrl.key] !== undefined
+              ? ppSettings.cameraConstraints[ctrl.key]
+              : (videoTrack.getSettings()[ctrl.key] || false);
+
+            row.innerHTML =
+              '<span class="setting-label">' + ctrl.label + '</span>' +
+              '<label class="setting-toggle">' +
+              '<input type="checkbox" id="hw-' + ctrl.key + '"' + (currentVal ? ' checked' : '') + '>' +
+              '<span class="toggle-track"></span></label>';
+
+            cameraControlsContainer.appendChild(row);
+
+            const checkbox = row.querySelector('input');
+            checkbox.addEventListener('change', () => {
+              applyCameraConstraint(ctrl.key, checkbox.checked);
+            });
+          }
+        });
+
+        if (!hasAny) {
+          cameraControlsContainer.innerHTML = '<div class="hw-not-supported">No adjustable camera controls detected.</div>';
+        }
+      }
+
+      function formatVal(val, ctrl) {
+        if (ctrl.unit === 'EV') return (val >= 0 ? '+' : '') + val.toFixed(1) + ' EV';
+        if (ctrl.unit === 'K') return Math.round(val) + 'K';
+        if (ctrl.unit === 'x') return val.toFixed(1) + 'x';
+        return typeof val === 'number' ? (Number.isInteger(val) ? val : val.toFixed(1)) : val;
+      }
+
+      async function applyCameraConstraint(key, value) {
+        if (!videoTrack) return;
+        ppSettings.cameraConstraints[key] = value;
+        saveSettings();
+        try {
+          const constraint = {};
+          constraint[key] = value;
+          await videoTrack.applyConstraints({ advanced: [constraint] });
+        } catch (e) {
+          console.warn('Failed to apply constraint ' + key + ':', e);
+        }
+      }
+
+      async function restoreCameraConstraints() {
+        if (!videoTrack || !trackCapabilities) return;
+        const saved = ppSettings.cameraConstraints;
+        for (const key of Object.keys(saved)) {
+          if (trackCapabilities[key] !== undefined) {
+            try {
+              const constraint = {};
+              constraint[key] = saved[key];
+              await videoTrack.applyConstraints({ advanced: [constraint] });
+            } catch (e) {
+              console.warn('Failed to restore constraint ' + key + ':', e);
+            }
+          }
+        }
+      }
 
       // ── Health Check ──
       function startHealthCheck() {
@@ -384,7 +706,26 @@
           ctx.drawImage(video, 0, 0);
         }
 
-        return canvas.toDataURL('image/jpeg', 0.92);
+        // ── Resize to max 2048px (prevents Vercel 4.5MB body limit & matches OpenAI max) ──
+        const MAX_DIM = 2048;
+        if (canvas.width > MAX_DIM || canvas.height > MAX_DIM) {
+          const scale = Math.min(MAX_DIM / canvas.width, MAX_DIM / canvas.height);
+          const newW = Math.round(canvas.width * scale);
+          const newH = Math.round(canvas.height * scale);
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = newW;
+          tempCanvas.height = newH;
+          const tempCtx = tempCanvas.getContext('2d');
+          tempCtx.drawImage(canvas, 0, 0, newW, newH);
+          canvas.width = newW;
+          canvas.height = newH;
+          ctx.drawImage(tempCanvas, 0, 0);
+        }
+
+        // ── Image Preprocessing Pipeline ──
+        applyPreprocessing(ctx, canvas.width, canvas.height);
+
+        return canvas.toDataURL('image/jpeg', ppSettings.jpegQuality);
       }
 
       function flashScreen() {
@@ -479,7 +820,13 @@
 
       // ── Capture handler ──
       async function handleCapture() {
-        if (isProcessing) return;
+        if (isProcessing) {
+          // Cancel in-flight request
+          if (abortController) {
+            abortController.abort();
+          }
+          return;
+        }
         if (!navigator.onLine) { setStatus('error', 'No internet connection'); statusAction.textContent = ''; return; }
         if (!cameraStream || cameraStream.getVideoTracks()[0]?.readyState === 'ended') {
           setStatus('error', 'Camera not available — reconnecting...');
@@ -490,8 +837,13 @@
         isProcessing = true;
         captureBtn.classList.add('disabled');
         flashScreen();
+        elapsedSeconds = 0;
         setStatus('processing', 'Analyzing...');
-        statusAction.textContent = '';
+        statusAction.textContent = 'Press SPACE or tap to cancel';
+        elapsedTimer = setInterval(() => {
+          elapsedSeconds++;
+          setStatus('processing', 'Analyzing... (' + elapsedSeconds + 's)');
+        }, 1000);
         broadcast({ type: 'loading' });
 
         try {
@@ -507,15 +859,22 @@
           statusAction.textContent = 'Press SPACE or tap to capture';
         } catch (err) {
           const msg = err.message || 'Unknown error';
-          broadcast({ type: 'error', error: msg });
-          setStatus('error', msg);
-          statusAction.textContent = 'Tap or press SPACE to retry';
+          const wasCancelled = msg === 'Request timed out — check your connection and try again.' && elapsedSeconds < 55;
+          if (wasCancelled) {
+            setStatus('ready', 'Cancelled');
+            statusAction.textContent = 'Press SPACE or tap to capture';
+          } else {
+            broadcast({ type: 'error', error: msg });
+            setStatus('error', msg);
+            statusAction.textContent = 'Tap or press SPACE to retry';
+          }
 
           if (!isServer && msg.includes('API key invalid')) {
             apiKey = '';
             setTimeout(showSetup, 2000);
           }
         } finally {
+          if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
           isProcessing = false;
           captureBtn.classList.remove('disabled');
         }
@@ -523,8 +882,13 @@
 
       // ── Input handlers ──
       document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && settingsPanel.classList.contains('open')) {
+          closeSettingsPanel();
+          return;
+        }
         if (e.code !== 'Space') return;
         if (setupEl.style.display !== 'none') return;
+        if (settingsPanel.classList.contains('open')) return;
         e.preventDefault();
         handleCapture();
       });
@@ -533,6 +897,398 @@
         e.preventDefault();
         handleCapture();
       });
+
+      // ── Image Preprocessing Pipeline ──
+      function applyPreprocessing(ctx, w, h) {
+        const needsProcessing = ppSettings.grayscale || ppSettings.autoContrast ||
+          ppSettings.sharpen || ppSettings.binarize || ppSettings.autoInvert;
+        if (!needsProcessing) return;
+
+        const imageData = ctx.getImageData(0, 0, w, h);
+        const data = imageData.data;
+        const len = data.length;
+
+        // 1. Grayscale
+        if (ppSettings.grayscale) {
+          for (let i = 0; i < len; i += 4) {
+            const lum = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+            data[i] = data[i + 1] = data[i + 2] = lum;
+          }
+        }
+
+        // 2. Auto Contrast (histogram stretch with 0.5% clipping)
+        if (ppSettings.autoContrast) {
+          const hist = new Uint32Array(256);
+          for (let i = 0; i < len; i += 4) {
+            const lum = Math.round(0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]);
+            hist[lum]++;
+          }
+          const totalPixels = len / 4;
+          const clipCount = Math.floor(totalPixels * 0.005);
+          let lo = 0, hi = 255;
+          let cumLo = 0, cumHi = 0;
+          for (let i = 0; i < 256; i++) {
+            cumLo += hist[i];
+            if (cumLo > clipCount) { lo = i; break; }
+          }
+          for (let i = 255; i >= 0; i--) {
+            cumHi += hist[i];
+            if (cumHi > clipCount) { hi = i; break; }
+          }
+          if (hi <= lo) { lo = 0; hi = 255; }
+          const range = hi - lo;
+          if (range > 0 && range < 255) {
+            const lut = new Uint8Array(256);
+            for (let i = 0; i < 256; i++) {
+              lut[i] = Math.max(0, Math.min(255, Math.round(((i - lo) / range) * 255)));
+            }
+            for (let i = 0; i < len; i += 4) {
+              data[i] = lut[data[i]];
+              data[i + 1] = lut[data[i + 1]];
+              data[i + 2] = lut[data[i + 2]];
+            }
+          }
+        }
+
+        // 3. Sharpen (3x3 unsharp mask kernel)
+        if (ppSettings.sharpen) {
+          const copy = new Uint8ClampedArray(data);
+          const kernel = [0, -1, 0, -1, 5, -1, 0, -1, 0];
+          for (let y = 1; y < h - 1; y++) {
+            for (let x = 1; x < w - 1; x++) {
+              for (let c = 0; c < 3; c++) {
+                let val = 0;
+                for (let ky = -1; ky <= 1; ky++) {
+                  for (let kx = -1; kx <= 1; kx++) {
+                    const idx = ((y + ky) * w + (x + kx)) * 4 + c;
+                    val += copy[idx] * kernel[(ky + 1) * 3 + (kx + 1)];
+                  }
+                }
+                data[(y * w + x) * 4 + c] = Math.max(0, Math.min(255, val));
+              }
+            }
+          }
+        }
+
+        // 4. Binarize (Otsu's method)
+        if (ppSettings.binarize) {
+          const hist = new Uint32Array(256);
+          for (let i = 0; i < len; i += 4) {
+            const lum = Math.round(0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]);
+            hist[lum]++;
+          }
+          const totalPixels = len / 4;
+          let sumAll = 0;
+          for (let i = 0; i < 256; i++) sumAll += i * hist[i];
+          let sumB = 0, wB = 0, maxVar = 0, threshold = 128;
+          for (let i = 0; i < 256; i++) {
+            wB += hist[i];
+            if (wB === 0) continue;
+            const wF = totalPixels - wB;
+            if (wF === 0) break;
+            sumB += i * hist[i];
+            const mB = sumB / wB;
+            const mF = (sumAll - sumB) / wF;
+            const variance = wB * wF * (mB - mF) * (mB - mF);
+            if (variance > maxVar) { maxVar = variance; threshold = i; }
+          }
+          for (let i = 0; i < len; i += 4) {
+            const lum = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+            const v = lum >= threshold ? 255 : 0;
+            data[i] = data[i + 1] = data[i + 2] = v;
+          }
+        }
+
+        // 5. Auto-Invert (dark mode detection)
+        if (ppSettings.autoInvert) {
+          let totalLum = 0;
+          const totalPixels = len / 4;
+          for (let i = 0; i < len; i += 4) {
+            totalLum += 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+          }
+          if (totalLum / totalPixels < 128) {
+            for (let i = 0; i < len; i += 4) {
+              data[i] = 255 - data[i];
+              data[i + 1] = 255 - data[i + 1];
+              data[i + 2] = 255 - data[i + 2];
+            }
+          }
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+      }
+
+      // ── Live Video CSS Filters ──
+      function applyVideoFilters() {
+        const filters = [];
+        if (ppSettings.grayscale) filters.push('grayscale(1)');
+        if (ppSettings.autoContrast) filters.push('contrast(1.4)');
+        if (ppSettings.autoInvert) filters.push('invert(1)');
+        video.style.filter = filters.length > 0 ? filters.join(' ') : '';
+      }
+
+      // ── Processed Preview ──
+      function updatePreview() {
+        if (!ppSettings.showPreview || !cameraStream || video.readyState < 2) {
+          previewCanvas.classList.remove('visible');
+          return;
+        }
+        previewCanvas.classList.add('visible');
+        const scale = 0.25;
+        const pw = Math.round(video.videoWidth * scale);
+        const ph = Math.round(video.videoHeight * scale);
+        previewCanvas.width = pw;
+        previewCanvas.height = ph;
+        const pCtx = previewCanvas.getContext('2d');
+        if (!pCtx) return;
+        pCtx.drawImage(video, 0, 0, pw, ph);
+        applyPreprocessing(pCtx, pw, ph);
+      }
+
+      // ── Settings Persistence ──
+      function loadSettings() {
+        try {
+          const raw = storageGet('mercy_camera_settings');
+          if (raw) {
+            const saved = JSON.parse(raw);
+            ppSettings = { ...defaultPPSettings, ...saved };
+            if (saved.cameraConstraints) ppSettings.cameraConstraints = { ...saved.cameraConstraints };
+          }
+        } catch {
+          ppSettings = { ...defaultPPSettings };
+        }
+      }
+
+      function saveSettings() {
+        storageSet('mercy_camera_settings', JSON.stringify({
+          autoContrast: ppSettings.autoContrast,
+          sharpen: ppSettings.sharpen,
+          grayscale: ppSettings.grayscale,
+          binarize: ppSettings.binarize,
+          autoInvert: ppSettings.autoInvert,
+          jpegQuality: ppSettings.jpegQuality,
+          showPreview: ppSettings.showPreview,
+          isScreenMode: ppSettings.isScreenMode,
+          cameraConstraints: ppSettings.cameraConstraints
+        }));
+      }
+
+      // ── Settings Panel Init & Event Wiring ──
+      function initSettingsPanel() {
+        // Sync UI to loaded settings
+        ppAutoContrast.checked = ppSettings.autoContrast;
+        ppSharpen.checked = ppSettings.sharpen;
+        ppGrayscale.checked = ppSettings.grayscale;
+        ppBinarize.checked = ppSettings.binarize;
+        ppAutoInvert.checked = ppSettings.autoInvert;
+        jpegQualitySlider.value = Math.round(ppSettings.jpegQuality * 100);
+        jpegQualityValue.textContent = Math.round(ppSettings.jpegQuality * 100) + '%';
+        showPreviewToggle.checked = ppSettings.showPreview;
+        if (ppSettings.isScreenMode) {
+          screenModeBtn.classList.add('active');
+          screenModeBtn.textContent = 'Screen Mode ON';
+        }
+
+        // Toggle panel
+        settingsToggle.addEventListener('click', (e) => {
+          e.preventDefault();
+          toggleSettingsPanel();
+        });
+        settingsBackdrop.addEventListener('click', () => closeSettingsPanel());
+        settingsCloseBtn.addEventListener('click', () => closeSettingsPanel());
+
+        // Screen Capture Mode
+        screenModeBtn.addEventListener('click', () => {
+          if (ppSettings.isScreenMode) {
+            disableScreenCaptureMode();
+          } else {
+            applyScreenCaptureMode();
+          }
+        });
+
+        // Reset button
+        resetSettingsBtn.addEventListener('click', () => {
+          ppSettings = { ...defaultPPSettings, cameraConstraints: {} };
+          preScreenModeSettings = null;
+          saveSettings();
+          syncUIToSettings();
+          applyVideoFilters();
+          updatePreview();
+          // Reset camera hardware to defaults
+          if (videoTrack && trackCapabilities) {
+            try {
+              videoTrack.applyConstraints({});
+            } catch {}
+          }
+          initCameraControls();
+        });
+
+        // Preprocessing toggles
+        ppAutoContrast.addEventListener('change', () => {
+          ppSettings.autoContrast = ppAutoContrast.checked;
+          saveSettings(); applyVideoFilters(); updatePreview();
+        });
+        ppSharpen.addEventListener('change', () => {
+          ppSettings.sharpen = ppSharpen.checked;
+          saveSettings(); updatePreview();
+        });
+        ppGrayscale.addEventListener('change', () => {
+          ppSettings.grayscale = ppGrayscale.checked;
+          saveSettings(); applyVideoFilters(); updatePreview();
+        });
+        ppBinarize.addEventListener('change', () => {
+          ppSettings.binarize = ppBinarize.checked;
+          saveSettings(); updatePreview();
+        });
+        ppAutoInvert.addEventListener('change', () => {
+          ppSettings.autoInvert = ppAutoInvert.checked;
+          saveSettings(); applyVideoFilters(); updatePreview();
+        });
+
+        // JPEG Quality slider
+        jpegQualitySlider.addEventListener('input', () => {
+          const val = parseInt(jpegQualitySlider.value, 10);
+          ppSettings.jpegQuality = val / 100;
+          jpegQualityValue.textContent = val + '%';
+          saveSettings();
+        });
+
+        // Show Preview toggle
+        showPreviewToggle.addEventListener('change', () => {
+          ppSettings.showPreview = showPreviewToggle.checked;
+          saveSettings();
+          updatePreview();
+        });
+      }
+
+      function syncUIToSettings() {
+        ppAutoContrast.checked = ppSettings.autoContrast;
+        ppSharpen.checked = ppSettings.sharpen;
+        ppGrayscale.checked = ppSettings.grayscale;
+        ppBinarize.checked = ppSettings.binarize;
+        ppAutoInvert.checked = ppSettings.autoInvert;
+        jpegQualitySlider.value = Math.round(ppSettings.jpegQuality * 100);
+        jpegQualityValue.textContent = Math.round(ppSettings.jpegQuality * 100) + '%';
+        showPreviewToggle.checked = ppSettings.showPreview;
+        screenModeBtn.classList.toggle('active', ppSettings.isScreenMode);
+        screenModeBtn.textContent = ppSettings.isScreenMode ? 'Screen Mode ON' : 'Screen Capture Mode';
+      }
+
+      function toggleSettingsPanel() {
+        const isOpen = settingsPanel.classList.contains('open');
+        if (isOpen) closeSettingsPanel();
+        else openSettingsPanel();
+      }
+
+      function openSettingsPanel() {
+        settingsPanel.classList.add('open');
+        settingsBackdrop.classList.add('visible');
+        settingsToggle.classList.add('active');
+        updatePreview();
+      }
+
+      function closeSettingsPanel() {
+        settingsPanel.classList.remove('open');
+        settingsBackdrop.classList.remove('visible');
+        settingsToggle.classList.remove('active');
+      }
+
+      // ── Screen Capture Mode ──
+      async function applyScreenCaptureMode() {
+        // Save current settings for restore
+        preScreenModeSettings = {
+          autoContrast: ppSettings.autoContrast,
+          sharpen: ppSettings.sharpen,
+          grayscale: ppSettings.grayscale,
+          binarize: ppSettings.binarize,
+          autoInvert: ppSettings.autoInvert,
+          cameraConstraints: { ...ppSettings.cameraConstraints }
+        };
+
+        // Apply optimal preprocessing
+        ppSettings.autoContrast = true;
+        ppSettings.sharpen = true;
+        ppSettings.autoInvert = true;
+        ppSettings.grayscale = false;
+        ppSettings.binarize = false;
+        ppSettings.isScreenMode = true;
+
+        // Apply optimal camera constraints (if supported)
+        if (videoTrack && trackCapabilities) {
+          const optimal = {};
+
+          if (trackCapabilities.exposureCompensation) {
+            const ec = trackCapabilities.exposureCompensation;
+            optimal.exposureCompensation = Math.max(ec.min, -1.0);
+          }
+          if (trackCapabilities.iso) {
+            const iso = trackCapabilities.iso;
+            optimal.iso = Math.max(iso.min, 100);
+          }
+          if (trackCapabilities.focusMode) {
+            const modes = trackCapabilities.focusMode;
+            if (modes.includes('single-shot')) optimal.focusMode = 'single-shot';
+          }
+          if (trackCapabilities.torch) {
+            optimal.torch = false;
+          }
+          if (trackCapabilities.zoom) {
+            const zm = trackCapabilities.zoom;
+            optimal.zoom = Math.min(zm.max, Math.max(zm.min, 1.2));
+          }
+          if (trackCapabilities.whiteBalanceMode) {
+            const modes = trackCapabilities.whiteBalanceMode;
+            if (modes.includes('continuous')) optimal.whiteBalanceMode = 'continuous';
+          }
+
+          ppSettings.cameraConstraints = { ...ppSettings.cameraConstraints, ...optimal };
+
+          // Apply each constraint
+          for (const key of Object.keys(optimal)) {
+            try {
+              const c = {};
+              c[key] = optimal[key];
+              await videoTrack.applyConstraints({ advanced: [c] });
+            } catch (e) {
+              console.warn('Screen mode: failed to set ' + key + ':', e);
+            }
+          }
+
+          // Refresh camera controls UI
+          initCameraControls();
+        }
+
+        saveSettings();
+        syncUIToSettings();
+        applyVideoFilters();
+        updatePreview();
+      }
+
+      function disableScreenCaptureMode() {
+        ppSettings.isScreenMode = false;
+
+        // Restore previous settings if available
+        if (preScreenModeSettings) {
+          ppSettings.autoContrast = preScreenModeSettings.autoContrast;
+          ppSettings.sharpen = preScreenModeSettings.sharpen;
+          ppSettings.grayscale = preScreenModeSettings.grayscale;
+          ppSettings.binarize = preScreenModeSettings.binarize;
+          ppSettings.autoInvert = preScreenModeSettings.autoInvert;
+          ppSettings.cameraConstraints = { ...preScreenModeSettings.cameraConstraints };
+          preScreenModeSettings = null;
+
+          // Re-apply restored camera constraints
+          if (videoTrack && trackCapabilities) {
+            restoreCameraConstraints();
+            initCameraControls();
+          }
+        }
+
+        saveSettings();
+        syncUIToSettings();
+        applyVideoFilters();
+        updatePreview();
+      }
 
       // ── Start ──
       init();

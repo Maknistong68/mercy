@@ -669,6 +669,385 @@ body {
   }
 }
 
+/* ── Settings Toggle Button ── */
+
+.settings-toggle {
+  width: 32px;
+  height: 32px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: #888;
+  transition: color 0.2s, background 0.2s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  flex-shrink: 0;
+  padding: 0;
+  margin-left: 0.5rem;
+}
+
+.settings-toggle:hover {
+  color: #ccc;
+  background: rgba(255,255,255,0.05);
+}
+
+.settings-toggle.active {
+  color: #4CAF50;
+}
+
+.settings-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* ── Settings Backdrop ── */
+
+.settings-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 49;
+}
+
+.settings-backdrop.visible {
+  display: block;
+}
+
+/* ── Settings Panel ── */
+
+.settings-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  max-width: 85vw;
+  background: #111;
+  border-left: 1px solid #222;
+  z-index: 50;
+  transform: translateX(100%);
+  transition: transform 0.3s ease;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-panel.open {
+  transform: translateX(0);
+}
+
+.settings-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  border-bottom: 1px solid #222;
+  flex-shrink: 0;
+}
+
+.settings-panel-header h2 {
+  font-size: 1rem;
+  font-weight: 500;
+  color: #e0e0e0;
+}
+
+.settings-close-btn {
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #888;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: color 0.2s, background 0.2s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  padding: 0;
+}
+
+.settings-close-btn:hover {
+  color: #e0e0e0;
+  background: rgba(255,255,255,0.05);
+}
+
+.settings-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem 0;
+}
+
+/* ── Settings Sections ── */
+
+.settings-section {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #1a1a1a;
+}
+
+.settings-section:last-child {
+  border-bottom: none;
+}
+
+.settings-section-title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.6rem;
+}
+
+/* ── Setting Rows ── */
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.45rem 0;
+  min-height: 36px;
+}
+
+.setting-label {
+  font-size: 0.85rem;
+  color: #ccc;
+  flex: 1;
+  min-width: 0;
+  padding-right: 0.75rem;
+}
+
+.setting-sublabel {
+  font-size: 0.7rem;
+  color: #666;
+  margin-top: 0.1rem;
+}
+
+.setting-value {
+  font-size: 0.75rem;
+  color: #888;
+  min-width: 36px;
+  text-align: right;
+  margin-right: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* ── iOS-style Toggle Switch ── */
+
+.setting-toggle {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.setting-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.setting-toggle .toggle-track {
+  position: absolute;
+  inset: 0;
+  background: #333;
+  border-radius: 11px;
+  cursor: pointer;
+  transition: background 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.setting-toggle .toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.setting-toggle input:checked + .toggle-track {
+  background: #4CAF50;
+}
+
+.setting-toggle input:checked + .toggle-track::after {
+  transform: translateX(18px);
+}
+
+/* ── Range Slider ── */
+
+.setting-range {
+  width: 120px;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: #333;
+  border-radius: 2px;
+  outline: none;
+  flex-shrink: 0;
+}
+
+.setting-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background: #4CAF50;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+
+.setting-range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: #4CAF50;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+
+/* ── Select Dropdown ── */
+
+.setting-select {
+  background: #1a1a1a;
+  color: #ccc;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.8rem;
+  outline: none;
+  cursor: pointer;
+  max-width: 140px;
+  flex-shrink: 0;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.setting-select:focus {
+  border-color: #4CAF50;
+}
+
+/* ── Screen Capture Mode Button ── */
+
+.screen-mode-btn {
+  width: 100%;
+  padding: 0.65rem 1rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  background: linear-gradient(135deg, #2e7d32, #388e3c);
+  color: #fff;
+}
+
+.screen-mode-btn:hover {
+  background: linear-gradient(135deg, #388e3c, #43a047);
+}
+
+.screen-mode-btn:active {
+  background: linear-gradient(135deg, #1b5e20, #2e7d32);
+}
+
+.screen-mode-btn.active {
+  background: linear-gradient(135deg, #43a047, #66bb6a);
+  box-shadow: 0 0 12px rgba(76, 175, 80, 0.3);
+}
+
+.reset-btn {
+  width: 100%;
+  padding: 0.5rem 1rem;
+  border: 1px solid #333;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  background: transparent;
+  color: #888;
+  margin-top: 0.4rem;
+}
+
+.reset-btn:hover {
+  background: rgba(255,255,255,0.05);
+  border-color: #444;
+  color: #ccc;
+}
+
+/* ── Preview Canvas ── */
+
+.preview-canvas {
+  width: 100%;
+  max-height: 200px;
+  background: #000;
+  border-radius: 6px;
+  border: 1px solid #222;
+  margin-top: 0.5rem;
+  display: none;
+}
+
+.preview-canvas.visible {
+  display: block;
+}
+
+/* ── Camera Controls Not Supported ── */
+
+.hw-not-supported {
+  font-size: 0.8rem;
+  color: #666;
+  font-style: italic;
+  padding: 0.5rem 0;
+}
+
+/* ── Settings Panel Responsive: Phones ≤480px ── */
+
+@media (max-width: 480px) {
+  .settings-panel {
+    width: 100%;
+    max-width: 100vw;
+  }
+
+  .setting-range {
+    width: 100px;
+  }
+}
+
+/* ── Settings Panel Responsive: Landscape ── */
+
+@media (max-height: 500px) and (orientation: landscape) {
+  .settings-panel {
+    width: 280px;
+  }
+
+  .settings-panel-header {
+    padding: 0.5rem 1rem;
+  }
+
+  .settings-section {
+    padding: 0.5rem 1rem;
+  }
+
+  .setting-row {
+    min-height: 30px;
+    padding: 0.3rem 0;
+  }
+}
+
 /* ── Reduced motion (accessibility) ── */
 
 @media (prefers-reduced-motion: reduce) {
