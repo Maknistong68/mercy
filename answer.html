@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mercy — Answers</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div class="answer-page">
+    <div class="header">
+      <div class="status-dot" id="connDot"></div>
+      <h1>Mercy</h1>
+    </div>
+
+    <div id="errorBanner" class="error-banner"></div>
+
+    <div id="waiting" class="waiting-message">
+      Waiting for capture... press SPACE on the controller.
+    </div>
+
+    <div id="spinner" class="spinner-container">
+      <div class="spinner"></div>
+      <span class="spinner-text">Analyzing...</span>
+    </div>
+
+    <div id="currentAnswer" class="current-answer">
+      <div class="answer-text" id="answerText"></div>
+      <div class="timestamp" id="answerTime"></div>
+    </div>
+
+    <div id="historySection" class="history-section" style="display:none;">
+      <h2>Previous Answers</h2>
+      <div id="historyList"></div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const MAX_HISTORY = 50;
+
+      const waiting = document.getElementById('waiting');
+      const spinner = document.getElementById('spinner');
+      const currentAnswer = document.getElementById('currentAnswer');
+      const answerText = document.getElementById('answerText');
+      const answerTime = document.getElementById('answerTime');
+      const historySection = document.getElementById('historySection');
+      const historyList = document.getElementById('historyList');
+      const errorBanner = document.getElementById('errorBanner');
+      const connDot = document.getElementById('connDot');
+
+      let history = [];
+
+      function showLoading() {
+        waiting.style.display = 'none';
+        spinner.classList.add('visible');
+        errorBanner.classList.remove('visible');
+      }
+
+      function showAnswer(answer, timestamp) {
+        // Move current answer to history if exists
+        const prevText = answerText.textContent;
+        const prevTime = answerTime.textContent;
+        if (prevText) {
+          history.unshift({ text: prevText, time: prevTime });
+          if (history.length > MAX_HISTORY) history.pop();
+          renderHistory();
+        }
+
+        waiting.style.display = 'none';
+        spinner.classList.remove('visible');
+        errorBanner.classList.remove('visible');
+        currentAnswer.classList.add('visible');
+        answerText.textContent = answer;
+        answerTime.textContent = timestamp;
+      }
+
+      function showError(message) {
+        spinner.classList.remove('visible');
+        errorBanner.textContent = message;
+        errorBanner.classList.add('visible');
+      }
+
+      function renderHistory() {
+        if (history.length === 0) {
+          historySection.style.display = 'none';
+          return;
+        }
+        historySection.style.display = 'block';
+        historyList.innerHTML = '';
+        history.forEach(item => {
+          const div = document.createElement('div');
+          div.className = 'history-item';
+          div.innerHTML =
+            '<div class="answer-text"></div>' +
+            '<div class="timestamp"></div>';
+          div.querySelector('.answer-text').textContent = item.text;
+          div.querySelector('.timestamp').textContent = item.time;
+          historyList.appendChild(div);
+        });
+      }
+
+      // Listen for messages from controller
+      window.addEventListener('message', (e) => {
+        const data = e.data;
+        if (!data || !data.type) return;
+
+        connDot.className = 'status-dot'; // reset to green (connected)
+
+        if (data.type === 'loading') {
+          showLoading();
+        } else if (data.type === 'answer') {
+          showAnswer(data.answer, data.timestamp);
+        } else if (data.type === 'error') {
+          showError(data.error);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

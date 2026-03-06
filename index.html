@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mercy</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- API Key Setup (shown only on first use) -->
+  <div id="setup" class="setup-screen" style="display:none;">
+    <h1>Mercy</h1>
+    <p>Enter your OpenAI API key to get started</p>
+    <input type="password" id="apiKeyInput" placeholder="sk-..." autocomplete="off">
+    <button id="saveKeyBtn">Save & Start</button>
+    <div id="setupError" class="error"></div>
+  </div>
+
+  <!-- Main Controller -->
+  <div id="controller" class="controller" style="display:none;">
+    <div class="status-bar">
+      <div class="status-indicator">
+        <div id="statusDot" class="status-dot"></div>
+        <span id="statusText" class="status-text">Starting camera...</span>
+      </div>
+      <span id="statusAction" class="status-action"></span>
+    </div>
+
+    <div class="video-container">
+      <video id="video" autoplay playsinline muted></video>
+      <div id="flash" class="capture-flash"></div>
+    </div>
+
+    <div id="inlineAnswer" class="inline-answer">
+      <div class="answer-content" id="inlineAnswerText"></div>
+    </div>
+
+    <div class="instructions">
+      Press <kbd>SPACE</kbd> to capture and analyze
+    </div>
+  </div>
+
+  <canvas id="canvas" style="display:none;"></canvas>
+
+  <script>
+    (() => {
+      // ── State ──
+      let apiKey = '';
+      let isProcessing = false;
+      let answerWindow = null;
+      let popupBlocked = false;
+      let cameraStream = null;
+      let healthCheckTimer = null;
+
+      // ── DOM refs ──
+      const setupEl = document.getElementById('setup');
+      const controllerEl = document.getElementById('controller');
+      const apiKeyInput = document.getElementById('apiKeyInput');
+      const saveKeyBtn = document.getElementById('saveKeyBtn');
+      const setupError = document.getElementById('setupError');
+      const video = document.getElementById('video');
+      const canvas = document.getElementById('canvas');
+      const flash = document.getElementById('flash');
+      const statusDot = document.getElementById('statusDot');
+      const statusText = document.getElementById('statusText');
+      const statusAction = document.getElementById('statusAction');
+      const inlineAnswer = document.getElementById('inlineAnswer');
+      const inlineAnswerText = document.getElementById('inlineAnswerText');
+
+      // ── Init ──
+      function init() {
+        apiKey = localStorage.getItem('mercy_api_key') || '';
+        if (apiKey) {
+          showController();
+        } else {
+          showSetup();
+        }
+      }
+
+      // ── Setup Screen ──
+      function showSetup() {
+        setupEl.style.display = 'flex';
+        controllerEl.style.display = 'none';
+        apiKeyInput.focus();
+      }
+
+      saveKeyBtn.addEventListener('click', saveKey);
+      apiKeyInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') saveKey();
+      });
+
+      function saveKey() {
+        const key = apiKeyInput.value.trim();
+        if (!key) {
+          setupError.textContent = 'Please enter an API key.';
+          return;
+        }
+        localStorage.setItem('mercy_api_key', key);
+        apiKey = key;
+        setupError.textContent = '';
+        showController();
+      }
+
+      // ── Controller ──
+      function showController() {
+        setupEl.style.display = 'none';
+        controllerEl.style.display = 'flex';
+        startCamera();
+        openAnswerWindow();
+        startHealthCheck();
+      }
+
+      // ── Camera ──
+      async function startCamera() {
+        setStatus('starting', 'Starting camera...');
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+            audio: false
+          });
+          cameraStream = stream;
+          video.srcObject = stream;
+          setStatus('ready', 'Ready');
+          statusAction.textContent = 'Press SPACE';
+        } catch (err) {
+          if (err.name === 'NotAllowedError') {
+            setStatus('error', 'Camera blocked — allow camera access in browser settings, then reload.');
+          } else {
+            setStatus('error', 'Camera error: ' + err.message);
+          }
+        }
+      }
+
+      async function reconnectCamera() {
+        if (cameraStream) {
+          cameraStream.getTracks().forEach(t => t.stop());
+          cameraStream = null;
+        }
+        await startCamera();
+      }
+
+      // ── Health Check ──
+      function startHealthCheck() {
+        if (healthCheckTimer) clearInterval(healthCheckTimer);
+        healthCheckTimer = setInterval(() => {
+          if (!cameraStream) return;
+          const tracks = cameraStream.getVideoTracks();
+          if (tracks.length === 0 || tracks[0].readyState === 'ended') {
+            reconnectCamera();
+          }
+        }, 30000);
+      }
+
+      // ── Status ──
+      function setStatus(type, text) {
+        statusDot.className = 'status-dot';
+        if (type === 'error') statusDot.classList.add('error');
+        if (type === 'processing') statusDot.classList.add('processing');
+        statusText.textContent = text;
+      }
+
+      // ── Answer Window ──
+      function openAnswerWindow() {
+        try {
+          answerWindow = window.open('answer.html', 'MercyAnswer', 'width=800,height=600');
+          if (!answerWindow || answerWindow.closed) {
+            popupBlocked = true;
+            statusAction.textContent = 'Pop-up blocked — answers shown inline';
+          } else {
+            popupBlocked = false;
+          }
+        } catch {
+          popupBlocked = true;
+        }
+      }
+
+      function ensureAnswerWindow() {
+        if (popupBlocked) return;
+        if (!answerWindow || answerWindow.closed) {
+          openAnswerWindow();
+        }
+      }
+
+      function sendToAnswer(data) {
+        if (popupBlocked || !answerWindow || answerWindow.closed) {
+          // Inline fallback
+          inlineAnswer.classList.add('visible');
+          inlineAnswerText.textContent = data.answer || data.error || '';
+          return;
+        }
+        try {
+          answerWindow.postMessage(data, '*');
+        } catch {
+          inlineAnswer.classList.add('visible');
+          inlineAnswerText.textContent = data.answer || data.error || '';
+        }
+      }
+
+      // ── Capture ──
+      function captureFrame() {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0);
+        return canvas.toDataURL('image/jpeg', 0.85);
+      }
+
+      function flashScreen() {
+        flash.classList.add('active');
+        setTimeout(() => flash.classList.remove('active'), 120);
+      }
+
+      // ── OpenAI API ──
+      async function analyzeImage(base64Url) {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + apiKey
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o',
+            max_tokens: 4096,
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: 'Find all questions/problems in this image. Provide ONLY the answers — clear, concise, and numbered if there are multiple. Do not restate the questions.'
+                  },
+                  {
+                    type: 'image_url',
+                    image_url: { url: base64Url, detail: 'high' }
+                  }
+                ]
+              }
+            ]
+          })
+        });
+
+        if (response.status === 401) {
+          localStorage.removeItem('mercy_api_key');
+          throw new Error('API key invalid. Reload to enter a new key.');
+        }
+
+        if (response.status === 429) {
+          throw new Error('Rate limited — wait a moment, then press SPACE again.');
+        }
+
+        if (!response.ok) {
+          const body = await response.text();
+          throw new Error('API error (' + response.status + '): ' + body.slice(0, 200));
+        }
+
+        const data = await response.json();
+        return data.choices[0].message.content;
+      }
+
+      // ── Spacebar Handler ──
+      document.addEventListener('keydown', async (e) => {
+        if (e.code !== 'Space') return;
+        e.preventDefault();
+
+        if (isProcessing) return;
+        if (!cameraStream || cameraStream.getVideoTracks()[0]?.readyState === 'ended') {
+          setStatus('error', 'Camera not available');
+          return;
+        }
+
+        isProcessing = true;
+        flashScreen();
+        setStatus('processing', 'Analyzing...');
+        statusAction.textContent = '';
+
+        ensureAnswerWindow();
+        sendToAnswer({ type: 'loading' });
+
+        try {
+          const frame = captureFrame();
+          const answer = await analyzeImage(frame);
+
+          sendToAnswer({ type: 'answer', answer: answer, timestamp: new Date().toLocaleTimeString() });
+          setStatus('ready', 'Ready');
+          statusAction.textContent = 'Press SPACE';
+        } catch (err) {
+          const msg = err.message || 'Unknown error';
+          sendToAnswer({ type: 'error', error: msg });
+          setStatus('error', msg);
+          statusAction.textContent = 'Press SPACE to retry';
+
+          // If key was invalid, go back to setup
+          if (msg.includes('API key invalid')) {
+            apiKey = '';
+            setTimeout(showSetup, 2000);
+          }
+        } finally {
+          isProcessing = false;
+        }
+      });
+
+      // ── Start ──
+      init();
+    })();
+  </script>
+</body>
+</html>
