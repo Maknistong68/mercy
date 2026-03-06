@@ -21,7 +21,7 @@
     <div id="errorBanner" class="error-banner"></div>
 
     <div id="waiting" class="waiting-message">
-      Waiting for capture... press SPACE on the controller.
+      Waiting for capture... press SPACE or tap the button on the controller.
     </div>
 
     <div id="spinner" class="spinner-container">
@@ -74,13 +74,25 @@
         }
       } catch {}
 
-      // Restore history on load
-      if (history.length > 0) {
-        renderHistory();
-      }
+      if (history.length > 0) renderHistory();
 
       function persistHistory() {
         storageSet(HISTORY_KEY, JSON.stringify(history));
+      }
+
+      // ── Message handler (shared between BroadcastChannel and storage fallback) ──
+      function handleMessage(data) {
+        if (!data || !data.type) return;
+
+        connDot.className = 'status-dot'; // green = connected
+
+        if (data.type === 'loading') {
+          showLoading();
+        } else if (data.type === 'answer') {
+          showAnswer(data.answer, data.timestamp);
+        } else if (data.type === 'error') {
+          showError(data.error);
+        }
       }
 
       function showLoading() {
@@ -90,7 +102,6 @@
       }
 
       function showAnswer(answer, timestamp) {
-        // Move current answer to history if exists
         const prevText = answerText.textContent;
         const prevTime = answerTime.textContent;
         if (prevText) {
@@ -133,35 +144,23 @@
         });
       }
 
-      // ── Message listener with origin validation ──
-      window.addEventListener('message', (e) => {
-        // Validate origin (allow same-origin; on file:// protocol origin is "null")
-        if (location.protocol !== 'file:' && e.origin !== location.origin) return;
+      // ── BroadcastChannel (primary — works across independent windows on DeX) ──
+      try {
+        const channel = new BroadcastChannel('mercy_channel');
+        channel.onmessage = (e) => handleMessage(e.data);
+      } catch {}
 
-        const data = e.data;
-        if (!data || !data.type) return;
-
-        connDot.className = 'status-dot'; // reset to green (connected)
-
-        if (data.type === 'loading') {
-          showLoading();
-        } else if (data.type === 'answer') {
-          showAnswer(data.answer, data.timestamp);
-        } else if (data.type === 'error') {
-          showError(data.error);
+      // ── localStorage fallback (for browsers without BroadcastChannel) ──
+      window.addEventListener('storage', (e) => {
+        if (e.key === 'mercy_broadcast' && e.newValue) {
+          try { handleMessage(JSON.parse(e.newValue)); } catch {}
         }
       });
 
-      // ── Online / Offline detection ──
-      window.addEventListener('online', () => {
-        offlineBanner.classList.remove('visible');
-      });
-      window.addEventListener('offline', () => {
-        offlineBanner.classList.add('visible');
-      });
-      if (!navigator.onLine) {
-        offlineBanner.classList.add('visible');
-      }
+      // ── Online / Offline ──
+      window.addEventListener('online', () => { offlineBanner.classList.remove('visible'); });
+      window.addEventListener('offline', () => { offlineBanner.classList.add('visible'); });
+      if (!navigator.onLine) offlineBanner.classList.add('visible');
     })();
   </script>
 </body>

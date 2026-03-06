@@ -15,7 +15,7 @@
   <!-- Offline Banner -->
   <div id="offlineBanner" class="offline-banner">No internet connection</div>
 
-  <!-- API Key Setup (shown only on first use) -->
+  <!-- API Key Setup (only for local/file:// usage) -->
   <div id="setup" class="setup-screen" style="display:none;">
     <h1>Mercy</h1>
     <p>Enter your OpenAI API key to get started</p>
@@ -68,15 +68,24 @@
         try { localStorage.removeItem(key); } catch {}
       }
 
+      // ── Detect deployment mode ──
+      // Served from http/https = Vercel (API key on server)
+      // Opened as file:// = local mode (API key in browser)
+      const isServer = location.protocol === 'https:' || location.protocol === 'http:';
+
       // ── State ──
       let apiKey = '';
       let isProcessing = false;
-      let answerWindow = null;
-      let popupBlocked = false;
       let cameraStream = null;
       let healthCheckTimer = null;
       let abortController = null;
       let wakeLock = null;
+
+      // ── BroadcastChannel (replaces window.open + postMessage) ──
+      let channel = null;
+      try {
+        channel = new BroadcastChannel('mercy_channel');
+      } catch {}
 
       // ── DOM refs ──
       const setupEl = document.getElementById('setup');
@@ -95,16 +104,19 @@
       const captureBtn = document.getElementById('captureBtn');
       const offlineBanner = document.getElementById('offlineBanner');
 
-      // ── PostMessage origin ──
-      const msgOrigin = location.protocol === 'file:' ? '*' : location.origin;
-
       // ── Init ──
       function init() {
-        apiKey = storageGet('mercy_api_key') || '';
-        if (apiKey) {
+        if (isServer) {
+          // Vercel mode: no API key needed, go straight to controller
           showController();
         } else {
-          showSetup();
+          // Local mode: need API key from user
+          apiKey = storageGet('mercy_api_key') || '';
+          if (apiKey) {
+            showController();
+          } else {
+            showSetup();
+          }
         }
 
         // Visibility: pause camera when tab hidden, resume when visible
@@ -136,13 +148,11 @@
         if (setupEl.style.display !== 'none') return;
 
         if (document.hidden) {
-          // Disable tracks to save battery (don't fully stop — faster resume)
           if (cameraStream) {
             cameraStream.getVideoTracks().forEach(t => { t.enabled = false; });
           }
           releaseWakeLock();
         } else {
-          // Re-enable or reconnect
           if (cameraStream) {
             const tracks = cameraStream.getVideoTracks();
             if (tracks.length > 0 && tracks[0].readyState === 'live') {
@@ -178,7 +188,6 @@
       // ── Orientation change ──
       let orientationTimer = null;
       function handleOrientation() {
-        // Debounce: camera re-acquisition after rotation settles
         clearTimeout(orientationTimer);
         orientationTimer = setTimeout(() => {
           if (cameraStream && !isProcessing && controllerEl.style.display !== 'none') {
@@ -187,17 +196,16 @@
         }, 500);
       }
 
-      // ── Resize handler (covers orientation + window resizing on DeX) ──
+      // ── Resize handler ──
       let resizeTimer = null;
       function handleResize() {
         clearTimeout(resizeTimer);
         resizeTimer = setTimeout(() => {
-          // Update body class for layout detection
           document.body.classList.toggle('landscape', window.innerWidth > window.innerHeight);
         }, 200);
       }
 
-      // ── Wake Lock (prevent screen sleep) ──
+      // ── Wake Lock ──
       async function requestWakeLock() {
         try {
           if ('wakeLock' in navigator && document.visibilityState === 'visible') {
@@ -211,7 +219,7 @@
         try { if (wakeLock) { wakeLock.release(); wakeLock = null; } } catch {}
       }
 
-      // ── Setup Screen ──
+      // ── Setup Screen (local mode only) ──
       function showSetup() {
         setupEl.style.display = 'flex';
         controllerEl.style.display = 'none';
@@ -242,7 +250,6 @@
         controllerEl.style.display = 'flex';
         document.body.classList.toggle('landscape', window.innerWidth > window.innerHeight);
         startCamera();
-        openAnswerWindow();
         startHealthCheck();
       }
 
@@ -263,10 +270,7 @@
             });
             cameraStream = stream;
             video.srcObject = stream;
-
-            // Wait for video metadata to load so dimensions are available
             await waitForVideo();
-
             setStatus('ready', 'Ready');
             statusAction.textContent = 'Press SPACE or tap to capture';
             requestWakeLock();
@@ -274,11 +278,10 @@
           } catch (err) {
             if (err.name === 'NotAllowedError') {
               setStatus('error', 'Camera blocked — allow camera access in browser settings, then reload.');
-              return; // Don't retry permission errors
+              return;
             }
 
             if (err.name === 'OverconstrainedError') {
-              // Fallback: try without specific resolution/facing constraints
               try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                 cameraStream = stream;
@@ -288,13 +291,10 @@
                 statusAction.textContent = 'Press SPACE or tap to capture';
                 requestWakeLock();
                 return;
-              } catch {
-                // Fall through to retry
-              }
+              } catch {}
             }
 
             if (err.name === 'NotReadableError') {
-              // Camera in use by another app — wait longer before retry
               if (attempt < retries - 1) {
                 setStatus('starting', 'Camera busy — retrying (' + (attempt + 2) + '/' + retries + ')...');
                 await sleep(2000 * (attempt + 1));
@@ -314,22 +314,10 @@
 
       function waitForVideo() {
         return new Promise((resolve, reject) => {
-          if (video.readyState >= 2 && video.videoWidth > 0) {
-            return resolve();
-          }
-          const onReady = () => {
-            cleanup();
-            resolve();
-          };
-          const onError = () => {
-            cleanup();
-            reject(new Error('Video failed to load'));
-          };
-          const timer = setTimeout(() => {
-            cleanup();
-            reject(new Error('Video load timeout'));
-          }, 10000);
-
+          if (video.readyState >= 2 && video.videoWidth > 0) return resolve();
+          const onReady = () => { cleanup(); resolve(); };
+          const onError = () => { cleanup(); reject(new Error('Video failed to load')); };
+          const timer = setTimeout(() => { cleanup(); reject(new Error('Video load timeout')); }, 10000);
           function cleanup() {
             clearTimeout(timer);
             video.removeEventListener('loadeddata', onReady);
@@ -374,48 +362,28 @@
       function setStatus(type, text) {
         statusDot.className = 'status-dot';
         if (type === 'error') statusDot.classList.add('error');
-        if (type === 'processing') statusDot.classList.add('processing');
-        if (type === 'starting') statusDot.classList.add('processing');
+        if (type === 'processing' || type === 'starting') statusDot.classList.add('processing');
         statusText.textContent = text;
       }
 
-      // ── Answer Window ──
-      function openAnswerWindow() {
+      // ── Broadcast to answer page ──
+      // Uses BroadcastChannel (works across independent windows/tabs on same origin)
+      // + localStorage fallback for older browsers
+      function broadcast(data) {
+        // BroadcastChannel: works across separate Chrome windows on DeX
         try {
-          answerWindow = window.open('answer.html', 'MercyAnswer', 'width=800,height=600');
-          if (!answerWindow || answerWindow.closed) {
-            popupBlocked = true;
-            statusAction.textContent = 'Pop-up blocked — answers shown inline';
-          } else {
-            popupBlocked = false;
-          }
-        } catch {
-          popupBlocked = true;
-        }
-      }
+          if (channel) channel.postMessage(data);
+        } catch {}
 
-      function ensureAnswerWindow() {
-        if (popupBlocked) return;
-        if (!answerWindow || answerWindow.closed) {
-          openAnswerWindow();
-        }
-      }
+        // localStorage fallback: storage event fires in other tabs of same origin
+        storageSet('mercy_broadcast', JSON.stringify({ ...data, _ts: Date.now() }));
+        storageRemove('mercy_broadcast');
 
-      function sendToAnswer(data) {
-        if (popupBlocked || !answerWindow || answerWindow.closed) {
-          // Inline fallback
-          if (data.type === 'loading') {
-            inlineAnswer.classList.add('visible');
-            inlineAnswerText.textContent = 'Analyzing...';
-          } else {
-            inlineAnswer.classList.add('visible');
-            inlineAnswerText.textContent = data.answer || data.error || '';
-          }
-          return;
-        }
-        try {
-          answerWindow.postMessage(data, msgOrigin);
-        } catch {
+        // Also show inline on this page
+        if (data.type === 'loading') {
+          inlineAnswer.classList.add('visible');
+          inlineAnswerText.textContent = 'Analyzing...';
+        } else if (data.type === 'answer' || data.type === 'error') {
           inlineAnswer.classList.add('visible');
           inlineAnswerText.textContent = data.answer || data.error || '';
         }
@@ -429,9 +397,7 @@
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          throw new Error('Canvas unavailable — try reloading the page.');
-        }
+        if (!ctx) throw new Error('Canvas unavailable — try reloading the page.');
         ctx.drawImage(video, 0, 0);
         return canvas.toDataURL('image/jpeg', 0.85);
       }
@@ -441,77 +407,91 @@
         setTimeout(() => flash.classList.remove('active'), 120);
       }
 
-      // ── OpenAI API with timeout ──
+      // ── API call (server or direct depending on mode) ──
       async function analyzeImage(base64Url) {
         abortController = new AbortController();
         const timeoutId = setTimeout(() => abortController.abort(), 60000);
 
         try {
-          const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer ' + apiKey
-            },
-            signal: abortController.signal,
-            body: JSON.stringify({
-              model: 'gpt-4o',
-              max_tokens: 4096,
-              messages: [
-                {
+          if (isServer) {
+            // ── Vercel mode: call server-side proxy ──
+            const response = await fetch('/api/analyze', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              signal: abortController.signal,
+              body: JSON.stringify({ image: base64Url })
+            });
+
+            clearTimeout(timeoutId);
+
+            let data;
+            try { data = await response.json(); } catch {
+              throw new Error('Invalid response from server — try again.');
+            }
+
+            if (!response.ok) {
+              throw new Error(data.error || 'Server error (' + response.status + ')');
+            }
+
+            if (!data.answer) {
+              throw new Error('Empty response — try again.');
+            }
+
+            return data.answer;
+          } else {
+            // ── Local mode: call OpenAI directly with user's API key ──
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + apiKey
+              },
+              signal: abortController.signal,
+              body: JSON.stringify({
+                model: 'gpt-4o',
+                max_tokens: 4096,
+                messages: [{
                   role: 'user',
                   content: [
-                    {
-                      type: 'text',
-                      text: 'Find all questions/problems in this image. Provide ONLY the answers — clear, concise, and numbered if there are multiple. Do not restate the questions.'
-                    },
-                    {
-                      type: 'image_url',
-                      image_url: { url: base64Url, detail: 'high' }
-                    }
+                    { type: 'text', text: 'Find all questions/problems in this image. Provide ONLY the answers — clear, concise, and numbered if there are multiple. Do not restate the questions.' },
+                    { type: 'image_url', image_url: { url: base64Url, detail: 'high' } }
                   ]
-                }
-              ]
-            })
-          });
+                }]
+              })
+            });
 
-          clearTimeout(timeoutId);
+            clearTimeout(timeoutId);
 
-          if (response.status === 401) {
-            storageRemove('mercy_api_key');
-            throw new Error('API key invalid. Reload to enter a new key.');
+            if (response.status === 401) {
+              storageRemove('mercy_api_key');
+              throw new Error('API key invalid. Reload to enter a new key.');
+            }
+            if (response.status === 429) {
+              throw new Error('Rate limited — wait a moment, then try again.');
+            }
+            if (response.status === 403) {
+              throw new Error('Access denied — check your API key permissions.');
+            }
+            if (response.status >= 500) {
+              throw new Error('OpenAI server error — try again in a moment.');
+            }
+            if (!response.ok) {
+              let body = '';
+              try { body = await response.text(); } catch {}
+              throw new Error('API error (' + response.status + '): ' + body.slice(0, 200));
+            }
+
+            let data;
+            try { data = await response.json(); } catch {
+              throw new Error('Invalid response from API — try again.');
+            }
+
+            if (!data.choices || !data.choices[0] || !data.choices[0].message || !data.choices[0].message.content) {
+              throw new Error('Empty response from API — try again.');
+            }
+
+            return data.choices[0].message.content;
           }
-
-          if (response.status === 429) {
-            throw new Error('Rate limited — wait a moment, then try again.');
-          }
-
-          if (response.status === 403) {
-            throw new Error('Access denied — check your API key permissions.');
-          }
-
-          if (response.status >= 500) {
-            throw new Error('OpenAI server error — try again in a moment.');
-          }
-
-          if (!response.ok) {
-            let body = '';
-            try { body = await response.text(); } catch {}
-            throw new Error('API error (' + response.status + '): ' + body.slice(0, 200));
-          }
-
-          let data;
-          try {
-            data = await response.json();
-          } catch {
-            throw new Error('Invalid response from API — try again.');
-          }
-
-          if (!data.choices || !data.choices[0] || !data.choices[0].message || !data.choices[0].message.content) {
-            throw new Error('Empty response from API — try again.');
-          }
-
-          return data.choices[0].message.content;
         } catch (err) {
           clearTimeout(timeoutId);
           if (err.name === 'AbortError') {
@@ -523,7 +503,7 @@
         }
       }
 
-      // ── Shared capture handler (keyboard + touch) ──
+      // ── Shared capture handler ──
       async function handleCapture() {
         if (isProcessing) return;
 
@@ -545,24 +525,22 @@
         setStatus('processing', 'Analyzing...');
         statusAction.textContent = '';
 
-        ensureAnswerWindow();
-        sendToAnswer({ type: 'loading' });
+        broadcast({ type: 'loading' });
 
         try {
           const frame = captureFrame();
           const answer = await analyzeImage(frame);
 
-          sendToAnswer({ type: 'answer', answer: answer, timestamp: new Date().toLocaleTimeString() });
+          broadcast({ type: 'answer', answer: answer, timestamp: new Date().toLocaleTimeString() });
           setStatus('ready', 'Ready');
           statusAction.textContent = 'Press SPACE or tap to capture';
         } catch (err) {
           const msg = err.message || 'Unknown error';
-          sendToAnswer({ type: 'error', error: msg });
+          broadcast({ type: 'error', error: msg });
           setStatus('error', msg);
           statusAction.textContent = 'Tap or press SPACE to retry';
 
-          // If key was invalid, go back to setup
-          if (msg.includes('API key invalid')) {
+          if (!isServer && msg.includes('API key invalid')) {
             apiKey = '';
             setTimeout(showSetup, 2000);
           }
@@ -580,16 +558,12 @@
         handleCapture();
       });
 
-      // ── Touch / click handler ──
+      // ── Capture button (touch + mouse) ──
+      // Uses click event only — touch-action:manipulation on the button
+      // prevents double-tap zoom without blocking click
       captureBtn.addEventListener('click', (e) => {
         e.preventDefault();
-        e.stopPropagation();
         handleCapture();
-      });
-
-      // Prevent double-tap zoom on capture button
-      captureBtn.addEventListener('touchend', (e) => {
-        e.preventDefault();
       });
 
       // ── Start ──
