@@ -76,8 +76,6 @@
 
       const USER_PROMPT = 'Analyze this image. Identify all multiple choice questions and provide the correct answers following the format specified.';
 
-      const VERIFICATION_ROUNDS = 3;
-
       // ── State ──
       let apiKey = '';
       let isProcessing = false;
@@ -342,14 +340,10 @@
 
         if (data.type === 'loading') {
           inlineAnswer.classList.add('visible');
-          inlineAnswerText.textContent = 'Analyzing & verifying (3 rounds)...';
+          inlineAnswerText.textContent = 'Analyzing...';
         } else if (data.type === 'answer' || data.type === 'error') {
           inlineAnswer.classList.add('visible');
-          let text = data.answer || data.error || '';
-          if (data.confidence && data.confidence.summary) {
-            text += '\n\n[' + data.confidence.summary + ']';
-          }
-          inlineAnswerText.textContent = text;
+          inlineAnswerText.textContent = data.answer || data.error || '';
         }
       }
 
@@ -398,76 +392,14 @@
         setTimeout(() => flash.classList.remove('active'), 120);
       }
 
-      // ── Answer parsing (for local-mode verification) ──
-      function parseAnswers(text) {
-        const matches = [...text.matchAll(/Q(\d+):\s*(.+)/gi)];
-        const map = {};
-        for (const m of matches) {
-          let choice = m[2].trim();
-          const explIdx = choice.toLowerCase().indexOf('explanation');
-          if (explIdx > 0) choice = choice.substring(0, explIdx).trim();
-          choice = choice.replace(/[.,;:\-]+$/, '').trim();
-          map['Q' + m[1]] = choice.toUpperCase();
-        }
-        return map;
-      }
-
-      function computeConsensus(successful) {
-        const parsed = successful.map(parseAnswers);
-        const allKeys = [...new Set(parsed.flatMap(p => Object.keys(p)))].sort(
-          (a, b) => parseInt(a.slice(1)) - parseInt(b.slice(1))
-        );
-
-        let agreedCount = 0;
-        const details = {};
-
-        for (const key of allKeys) {
-          const votes = parsed.map(p => p[key]).filter(Boolean);
-          const tally = {};
-          for (const v of votes) tally[v] = (tally[v] || 0) + 1;
-          const sorted = Object.entries(tally).sort((a, b) => b[1] - a[1]);
-          const [bestChoice, bestCount] = sorted[0];
-          const unanimous = bestCount === votes.length;
-          details[key] = { choice: bestChoice, votes: bestCount, total: votes.length, unanimous };
-          if (unanimous) agreedCount++;
-        }
-
-        // Pick best matching response
-        let bestIdx = 0;
-        let bestMatchCount = 0;
-        for (let i = 0; i < successful.length; i++) {
-          let matchCount = 0;
-          for (const key of allKeys) {
-            if (parsed[i][key] === details[key].choice) matchCount++;
-          }
-          if (matchCount > bestMatchCount) { bestMatchCount = matchCount; bestIdx = i; }
-        }
-
-        const totalQuestions = allKeys.length;
-        const roundsCompleted = successful.length;
-        const perQuestion = allKeys.map(key => {
-          const d = details[key];
-          return key + ': ' + d.choice + ' (' + d.votes + '/' + d.total + ' — ' + (d.unanimous ? 'verified' : 'review') + ')';
-        }).join('\n');
-
-        const summary = totalQuestions > 0
-          ? agreedCount + '/' + totalQuestions + ' verified (' + roundsCompleted + ' rounds)'
-          : roundsCompleted + ' rounds completed';
-
-        return {
-          bestResponse: successful[bestIdx],
-          confidence: { summary, perQuestion, agreedCount, totalQuestions, roundsCompleted, details }
-        };
-      }
-
-      // ── API call with verification ──
+      // ── API call (single round) ──
       async function analyzeImage(base64Url) {
         abortController = new AbortController();
-        const timeoutId = setTimeout(() => abortController.abort(), 90000);
+        const timeoutId = setTimeout(() => abortController.abort(), 60000);
 
         try {
           if (isServer) {
-            // ── Vercel mode: server handles verification ──
+            // ── Vercel mode ──
             const response = await fetch('/api/analyze', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -485,68 +417,56 @@
             if (!response.ok) throw new Error(data.error || 'Server error (' + response.status + ')');
             if (!data.answer) throw new Error('Empty response — try again.');
 
-            return { answer: data.answer, confidence: data.confidence };
+            return data.answer;
 
           } else {
-            // ── Local mode: 3-round parallel verification ──
-            const requestBody = {
-              model: 'gpt-4o',
-              max_tokens: 4096,
-              messages: [
-                { role: 'system', content: SYSTEM_PROMPT },
-                {
-                  role: 'user',
-                  content: [
-                    { type: 'text', text: USER_PROMPT },
-                    { type: 'image_url', image_url: { url: base64Url, detail: 'high' } }
-                  ]
-                }
-              ]
-            };
+            // ── Local mode ──
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + apiKey
+              },
+              signal: abortController.signal,
+              body: JSON.stringify({
+                model: 'gpt-4o',
+                max_tokens: 4096,
+                messages: [
+                  { role: 'system', content: SYSTEM_PROMPT },
+                  {
+                    role: 'user',
+                    content: [
+                      { type: 'text', text: USER_PROMPT },
+                      { type: 'image_url', image_url: { url: base64Url, detail: 'high' } }
+                    ]
+                  }
+                ]
+              })
+            });
 
-            const promises = Array.from({ length: VERIFICATION_ROUNDS }, () =>
-              fetch('https://api.openai.com/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': 'Bearer ' + apiKey
-                },
-                signal: abortController.signal,
-                body: JSON.stringify(requestBody)
-              }).then(async (response) => {
-                if (response.status === 401) {
-                  storageRemove('mercy_api_key');
-                  throw new Error('API key invalid. Reload to enter a new key.');
-                }
-                if (response.status === 429) throw new Error('Rate limited — wait a moment, then try again.');
-                if (!response.ok) {
-                  let body = ''; try { body = await response.text(); } catch {}
-                  throw new Error('API error (' + response.status + '): ' + body.slice(0, 200));
-                }
-                let data;
-                try { data = await response.json(); } catch { throw new Error('Invalid API response'); }
-                const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-                if (!content) throw new Error('Empty response');
-                return content;
-              }).catch(err => ({ error: err.message }))
-            );
-
-            const results = await Promise.all(promises);
             clearTimeout(timeoutId);
 
-            // Check for fatal errors
-            for (const r of results) {
-              if (r && r.error && r.error.includes('API key invalid')) throw new Error(r.error);
+            if (response.status === 401) {
+              storageRemove('mercy_api_key');
+              throw new Error('API key invalid. Reload to enter a new key.');
+            }
+            if (response.status === 429) throw new Error('Rate limited — wait a moment, then try again.');
+            if (response.status === 403) throw new Error('Access denied — check your API key permissions.');
+            if (response.status >= 500) throw new Error('OpenAI server error — try again in a moment.');
+            if (!response.ok) {
+              let body = ''; try { body = await response.text(); } catch {}
+              throw new Error('API error (' + response.status + '): ' + body.slice(0, 200));
             }
 
-            const successful = results.filter(r => typeof r === 'string' && r.length > 0);
-            if (successful.length === 0) {
-              const firstErr = results.find(r => r && r.error);
-              throw new Error('All verification rounds failed.' + (firstErr ? ' ' + firstErr.error : ''));
+            let data;
+            try { data = await response.json(); } catch {
+              throw new Error('Invalid response from API — try again.');
             }
 
-            const { bestResponse, confidence } = computeConsensus(successful);
-            return { answer: bestResponse, confidence };
+            const answer = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+            if (!answer) throw new Error('Empty response from API — try again.');
+
+            return answer;
           }
         } catch (err) {
           clearTimeout(timeoutId);
@@ -570,18 +490,17 @@
         isProcessing = true;
         captureBtn.classList.add('disabled');
         flashScreen();
-        setStatus('processing', 'Analyzing & verifying (3 rounds)...');
+        setStatus('processing', 'Analyzing...');
         statusAction.textContent = '';
         broadcast({ type: 'loading' });
 
         try {
           const frame = captureFrame();
-          const { answer, confidence } = await analyzeImage(frame);
+          const answer = await analyzeImage(frame);
 
           broadcast({
             type: 'answer',
             answer: answer,
-            confidence: confidence,
             timestamp: new Date().toLocaleTimeString()
           });
           setStatus('ready', 'Ready');
