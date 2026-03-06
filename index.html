@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#0a0a0a">
-  <meta name="description" content="Mercy — AI-powered image analysis using your camera">
+  <meta name="description" content="Mercy — AI-powered image analysis for Industrial Engineering">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Mercy</title>
@@ -69,9 +69,14 @@
       }
 
       // ── Detect deployment mode ──
-      // Served from http/https = Vercel (API key on server)
-      // Opened as file:// = local mode (API key in browser)
       const isServer = location.protocol === 'https:' || location.protocol === 'http:';
+
+      // ── IE-focused prompt (same as api/analyze.js) ──
+      const SYSTEM_PROMPT = 'You are an expert in Industrial Engineering and all related fields: operations research, quality management & control, statistics, probability, ergonomics, human factors, supply chain management, logistics, production planning & control, engineering economics, manufacturing processes, facilities planning & layout, work study, methods engineering, time & motion study, inventory management, lean manufacturing, Six Sigma, project management, engineering mathematics, thermodynamics, and material science.\n\nYou will be shown an image containing one or more multiple choice questions. Your task:\n1. Identify each question. Number them Q1, Q2, etc.\n2. Determine the correct answer using the EXACT choice label as written in the image. Do NOT convert labels — if choices are labeled 1, 2, 3, 4 use those numbers. If A, B, C, D use those letters. If True/False use that. Whatever the labeling is, use it exactly.\n3. Give a brief explanation (1-2 sentences) for each.\n\nSTRICT OUTPUT FORMAT — follow exactly:\nQ1: [exact choice label]\nExplanation: [brief reason]\n\nQ2: [exact choice label]\nExplanation: [brief reason]\n\nIf you cannot determine the answer with certainty, still provide your best choice and note your uncertainty in the explanation.';
+
+      const USER_PROMPT = 'Analyze this image. Identify all multiple choice questions and provide the correct answers following the format specified.';
+
+      const VERIFICATION_ROUNDS = 3;
 
       // ── State ──
       let apiKey = '';
@@ -81,7 +86,7 @@
       let abortController = null;
       let wakeLock = null;
 
-      // ── BroadcastChannel (replaces window.open + postMessage) ──
+      // ── BroadcastChannel ──
       let channel = null;
       try {
         channel = new BroadcastChannel('mercy_channel');
@@ -107,50 +112,33 @@
       // ── Init ──
       function init() {
         if (isServer) {
-          // Vercel mode: no API key needed, go straight to controller
           showController();
         } else {
-          // Local mode: need API key from user
           apiKey = storageGet('mercy_api_key') || '';
-          if (apiKey) {
-            showController();
-          } else {
-            showSetup();
-          }
+          if (apiKey) showController();
+          else showSetup();
         }
 
-        // Visibility: pause camera when tab hidden, resume when visible
         document.addEventListener('visibilitychange', handleVisibility);
-
-        // Online/offline detection
         window.addEventListener('online', handleOnline);
         window.addEventListener('offline', handleOffline);
         if (!navigator.onLine) handleOffline();
 
-        // Orientation change: reconnect camera to adapt resolution
         window.addEventListener('orientationchange', handleOrientation);
         if (screen.orientation) {
           screen.orientation.addEventListener('change', handleOrientation);
         }
         window.addEventListener('resize', handleResize);
 
-        // Global error handler
-        window.addEventListener('error', (e) => {
-          console.error('Unhandled error:', e.error);
-        });
-        window.addEventListener('unhandledrejection', (e) => {
-          console.error('Unhandled rejection:', e.reason);
-        });
+        window.addEventListener('error', (e) => { console.error('Unhandled error:', e.error); });
+        window.addEventListener('unhandledrejection', (e) => { console.error('Unhandled rejection:', e.reason); });
       }
 
-      // ── Visibility handling ──
+      // ── Visibility ──
       function handleVisibility() {
         if (setupEl.style.display !== 'none') return;
-
         if (document.hidden) {
-          if (cameraStream) {
-            cameraStream.getVideoTracks().forEach(t => { t.enabled = false; });
-          }
+          if (cameraStream) cameraStream.getVideoTracks().forEach(t => { t.enabled = false; });
           releaseWakeLock();
         } else {
           if (cameraStream) {
@@ -185,7 +173,7 @@
         }
       }
 
-      // ── Orientation change ──
+      // ── Orientation ──
       let orientationTimer = null;
       function handleOrientation() {
         clearTimeout(orientationTimer);
@@ -196,7 +184,6 @@
         }, 500);
       }
 
-      // ── Resize handler ──
       let resizeTimer = null;
       function handleResize() {
         clearTimeout(resizeTimer);
@@ -214,12 +201,11 @@
           }
         } catch {}
       }
-
       function releaseWakeLock() {
         try { if (wakeLock) { wakeLock.release(); wakeLock = null; } } catch {}
       }
 
-      // ── Setup Screen (local mode only) ──
+      // ── Setup Screen (local mode) ──
       function showSetup() {
         setupEl.style.display = 'flex';
         controllerEl.style.display = 'none';
@@ -228,16 +214,11 @@
       }
 
       saveKeyBtn.addEventListener('click', saveKey);
-      apiKeyInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') saveKey();
-      });
+      apiKeyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveKey(); });
 
       function saveKey() {
         const key = apiKeyInput.value.trim();
-        if (!key) {
-          setupError.textContent = 'Please enter an API key.';
-          return;
-        }
+        if (!key) { setupError.textContent = 'Please enter an API key.'; return; }
         storageSet('mercy_api_key', key);
         apiKey = key;
         setupError.textContent = '';
@@ -253,7 +234,7 @@
         startHealthCheck();
       }
 
-      // ── Camera with retry ──
+      // ── Camera: request highest possible resolution ──
       async function startCamera(retries = 3) {
         setStatus('starting', 'Starting camera...');
         statusAction.textContent = '';
@@ -263,15 +244,15 @@
             const stream = await navigator.mediaDevices.getUserMedia({
               video: {
                 facingMode: 'environment',
-                width: { ideal: 1920 },
-                height: { ideal: 1080 }
+                width: { ideal: 4096 },
+                height: { ideal: 2160 }
               },
               audio: false
             });
             cameraStream = stream;
             video.srcObject = stream;
             await waitForVideo();
-            setStatus('ready', 'Ready');
+            setStatus('ready', 'Ready (' + video.videoWidth + 'x' + video.videoHeight + ')');
             statusAction.textContent = 'Press SPACE or tap to capture';
             requestWakeLock();
             return;
@@ -280,20 +261,18 @@
               setStatus('error', 'Camera blocked — allow camera access in browser settings, then reload.');
               return;
             }
-
             if (err.name === 'OverconstrainedError') {
               try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                 cameraStream = stream;
                 video.srcObject = stream;
                 await waitForVideo();
-                setStatus('ready', 'Ready');
+                setStatus('ready', 'Ready (' + video.videoWidth + 'x' + video.videoHeight + ')');
                 statusAction.textContent = 'Press SPACE or tap to capture';
                 requestWakeLock();
                 return;
               } catch {}
             }
-
             if (err.name === 'NotReadableError') {
               if (attempt < retries - 1) {
                 setStatus('starting', 'Camera busy — retrying (' + (attempt + 2) + '/' + retries + ')...');
@@ -301,7 +280,6 @@
                 continue;
               }
             }
-
             if (attempt < retries - 1) {
               setStatus('starting', 'Camera retry ' + (attempt + 2) + '/' + retries + '...');
               await sleep(1000 * (attempt + 1));
@@ -328,23 +306,15 @@
         });
       }
 
-      function sleep(ms) {
-        return new Promise(r => setTimeout(r, ms));
-      }
+      function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
       function stopCamera() {
-        if (cameraStream) {
-          cameraStream.getTracks().forEach(t => t.stop());
-          cameraStream = null;
-        }
+        if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
         video.srcObject = null;
         releaseWakeLock();
       }
 
-      async function reconnectCamera() {
-        stopCamera();
-        await startCamera();
-      }
+      async function reconnectCamera() { stopCamera(); await startCamera(); }
 
       // ── Health Check ──
       function startHealthCheck() {
@@ -352,9 +322,7 @@
         healthCheckTimer = setInterval(() => {
           if (!cameraStream || isProcessing) return;
           const tracks = cameraStream.getVideoTracks();
-          if (tracks.length === 0 || tracks[0].readyState === 'ended') {
-            reconnectCamera();
-          }
+          if (tracks.length === 0 || tracks[0].readyState === 'ended') reconnectCamera();
         }, 30000);
       }
 
@@ -366,40 +334,63 @@
         statusText.textContent = text;
       }
 
-      // ── Broadcast to answer page ──
-      // Uses BroadcastChannel (works across independent windows/tabs on same origin)
-      // + localStorage fallback for older browsers
+      // ── Broadcast ──
       function broadcast(data) {
-        // BroadcastChannel: works across separate Chrome windows on DeX
-        try {
-          if (channel) channel.postMessage(data);
-        } catch {}
-
-        // localStorage fallback: storage event fires in other tabs of same origin
+        try { if (channel) channel.postMessage(data); } catch {}
         storageSet('mercy_broadcast', JSON.stringify({ ...data, _ts: Date.now() }));
         storageRemove('mercy_broadcast');
 
-        // Also show inline on this page
         if (data.type === 'loading') {
           inlineAnswer.classList.add('visible');
-          inlineAnswerText.textContent = 'Analyzing...';
+          inlineAnswerText.textContent = 'Analyzing & verifying (3 rounds)...';
         } else if (data.type === 'answer' || data.type === 'error') {
           inlineAnswer.classList.add('visible');
-          inlineAnswerText.textContent = data.answer || data.error || '';
+          let text = data.answer || data.error || '';
+          if (data.confidence && data.confidence.summary) {
+            text += '\n\n[' + data.confidence.summary + ']';
+          }
+          inlineAnswerText.textContent = text;
         }
       }
 
-      // ── Capture Frame ──
+      // ── Capture Frame (with orientation correction) ──
       function captureFrame() {
         if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
           throw new Error('Camera not ready — wait a moment and try again.');
         }
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+
+        // Check for rotation metadata from the video track
+        let rotation = 0;
+        try {
+          const track = cameraStream.getVideoTracks()[0];
+          const settings = track.getSettings();
+          if (typeof settings.rotation === 'number') rotation = settings.rotation;
+        } catch {}
+
+        const isRotated = (rotation === 90 || rotation === 270);
+
+        if (isRotated) {
+          canvas.width = video.videoHeight;
+          canvas.height = video.videoWidth;
+        } else {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+        }
+
         const ctx = canvas.getContext('2d');
         if (!ctx) throw new Error('Canvas unavailable — try reloading the page.');
-        ctx.drawImage(video, 0, 0);
-        return canvas.toDataURL('image/jpeg', 0.85);
+
+        if (rotation !== 0) {
+          ctx.save();
+          ctx.translate(canvas.width / 2, canvas.height / 2);
+          ctx.rotate(-rotation * Math.PI / 180);
+          ctx.drawImage(video, -video.videoWidth / 2, -video.videoHeight / 2);
+          ctx.restore();
+        } else {
+          ctx.drawImage(video, 0, 0);
+        }
+
+        return canvas.toDataURL('image/jpeg', 0.92);
       }
 
       function flashScreen() {
@@ -407,14 +398,76 @@
         setTimeout(() => flash.classList.remove('active'), 120);
       }
 
-      // ── API call (server or direct depending on mode) ──
+      // ── Answer parsing (for local-mode verification) ──
+      function parseAnswers(text) {
+        const matches = [...text.matchAll(/Q(\d+):\s*(.+)/gi)];
+        const map = {};
+        for (const m of matches) {
+          let choice = m[2].trim();
+          const explIdx = choice.toLowerCase().indexOf('explanation');
+          if (explIdx > 0) choice = choice.substring(0, explIdx).trim();
+          choice = choice.replace(/[.,;:\-]+$/, '').trim();
+          map['Q' + m[1]] = choice.toUpperCase();
+        }
+        return map;
+      }
+
+      function computeConsensus(successful) {
+        const parsed = successful.map(parseAnswers);
+        const allKeys = [...new Set(parsed.flatMap(p => Object.keys(p)))].sort(
+          (a, b) => parseInt(a.slice(1)) - parseInt(b.slice(1))
+        );
+
+        let agreedCount = 0;
+        const details = {};
+
+        for (const key of allKeys) {
+          const votes = parsed.map(p => p[key]).filter(Boolean);
+          const tally = {};
+          for (const v of votes) tally[v] = (tally[v] || 0) + 1;
+          const sorted = Object.entries(tally).sort((a, b) => b[1] - a[1]);
+          const [bestChoice, bestCount] = sorted[0];
+          const unanimous = bestCount === votes.length;
+          details[key] = { choice: bestChoice, votes: bestCount, total: votes.length, unanimous };
+          if (unanimous) agreedCount++;
+        }
+
+        // Pick best matching response
+        let bestIdx = 0;
+        let bestMatchCount = 0;
+        for (let i = 0; i < successful.length; i++) {
+          let matchCount = 0;
+          for (const key of allKeys) {
+            if (parsed[i][key] === details[key].choice) matchCount++;
+          }
+          if (matchCount > bestMatchCount) { bestMatchCount = matchCount; bestIdx = i; }
+        }
+
+        const totalQuestions = allKeys.length;
+        const roundsCompleted = successful.length;
+        const perQuestion = allKeys.map(key => {
+          const d = details[key];
+          return key + ': ' + d.choice + ' (' + d.votes + '/' + d.total + ' — ' + (d.unanimous ? 'verified' : 'review') + ')';
+        }).join('\n');
+
+        const summary = totalQuestions > 0
+          ? agreedCount + '/' + totalQuestions + ' verified (' + roundsCompleted + ' rounds)'
+          : roundsCompleted + ' rounds completed';
+
+        return {
+          bestResponse: successful[bestIdx],
+          confidence: { summary, perQuestion, agreedCount, totalQuestions, roundsCompleted, details }
+        };
+      }
+
+      // ── API call with verification ──
       async function analyzeImage(base64Url) {
         abortController = new AbortController();
-        const timeoutId = setTimeout(() => abortController.abort(), 60000);
+        const timeoutId = setTimeout(() => abortController.abort(), 90000);
 
         try {
           if (isServer) {
-            // ── Vercel mode: call server-side proxy ──
+            // ── Vercel mode: server handles verification ──
             const response = await fetch('/api/analyze', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -429,90 +482,85 @@
               throw new Error('Invalid response from server — try again.');
             }
 
-            if (!response.ok) {
-              throw new Error(data.error || 'Server error (' + response.status + ')');
-            }
+            if (!response.ok) throw new Error(data.error || 'Server error (' + response.status + ')');
+            if (!data.answer) throw new Error('Empty response — try again.');
 
-            if (!data.answer) {
-              throw new Error('Empty response — try again.');
-            }
+            return { answer: data.answer, confidence: data.confidence };
 
-            return data.answer;
           } else {
-            // ── Local mode: call OpenAI directly with user's API key ──
-            const response = await fetch('https://api.openai.com/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + apiKey
-              },
-              signal: abortController.signal,
-              body: JSON.stringify({
-                model: 'gpt-4o',
-                max_tokens: 4096,
-                messages: [{
+            // ── Local mode: 3-round parallel verification ──
+            const requestBody = {
+              model: 'gpt-4o',
+              max_tokens: 4096,
+              messages: [
+                { role: 'system', content: SYSTEM_PROMPT },
+                {
                   role: 'user',
                   content: [
-                    { type: 'text', text: 'Find all questions/problems in this image. Provide ONLY the answers — clear, concise, and numbered if there are multiple. Do not restate the questions.' },
+                    { type: 'text', text: USER_PROMPT },
                     { type: 'image_url', image_url: { url: base64Url, detail: 'high' } }
                   ]
-                }]
-              })
-            });
+                }
+              ]
+            };
 
+            const promises = Array.from({ length: VERIFICATION_ROUNDS }, () =>
+              fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer ' + apiKey
+                },
+                signal: abortController.signal,
+                body: JSON.stringify(requestBody)
+              }).then(async (response) => {
+                if (response.status === 401) {
+                  storageRemove('mercy_api_key');
+                  throw new Error('API key invalid. Reload to enter a new key.');
+                }
+                if (response.status === 429) throw new Error('Rate limited — wait a moment, then try again.');
+                if (!response.ok) {
+                  let body = ''; try { body = await response.text(); } catch {}
+                  throw new Error('API error (' + response.status + '): ' + body.slice(0, 200));
+                }
+                let data;
+                try { data = await response.json(); } catch { throw new Error('Invalid API response'); }
+                const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+                if (!content) throw new Error('Empty response');
+                return content;
+              }).catch(err => ({ error: err.message }))
+            );
+
+            const results = await Promise.all(promises);
             clearTimeout(timeoutId);
 
-            if (response.status === 401) {
-              storageRemove('mercy_api_key');
-              throw new Error('API key invalid. Reload to enter a new key.');
-            }
-            if (response.status === 429) {
-              throw new Error('Rate limited — wait a moment, then try again.');
-            }
-            if (response.status === 403) {
-              throw new Error('Access denied — check your API key permissions.');
-            }
-            if (response.status >= 500) {
-              throw new Error('OpenAI server error — try again in a moment.');
-            }
-            if (!response.ok) {
-              let body = '';
-              try { body = await response.text(); } catch {}
-              throw new Error('API error (' + response.status + '): ' + body.slice(0, 200));
+            // Check for fatal errors
+            for (const r of results) {
+              if (r && r.error && r.error.includes('API key invalid')) throw new Error(r.error);
             }
 
-            let data;
-            try { data = await response.json(); } catch {
-              throw new Error('Invalid response from API — try again.');
+            const successful = results.filter(r => typeof r === 'string' && r.length > 0);
+            if (successful.length === 0) {
+              const firstErr = results.find(r => r && r.error);
+              throw new Error('All verification rounds failed.' + (firstErr ? ' ' + firstErr.error : ''));
             }
 
-            if (!data.choices || !data.choices[0] || !data.choices[0].message || !data.choices[0].message.content) {
-              throw new Error('Empty response from API — try again.');
-            }
-
-            return data.choices[0].message.content;
+            const { bestResponse, confidence } = computeConsensus(successful);
+            return { answer: bestResponse, confidence };
           }
         } catch (err) {
           clearTimeout(timeoutId);
-          if (err.name === 'AbortError') {
-            throw new Error('Request timed out — check your connection and try again.');
-          }
+          if (err.name === 'AbortError') throw new Error('Request timed out — check your connection and try again.');
           throw err;
         } finally {
           abortController = null;
         }
       }
 
-      // ── Shared capture handler ──
+      // ── Capture handler ──
       async function handleCapture() {
         if (isProcessing) return;
-
-        if (!navigator.onLine) {
-          setStatus('error', 'No internet connection');
-          statusAction.textContent = '';
-          return;
-        }
-
+        if (!navigator.onLine) { setStatus('error', 'No internet connection'); statusAction.textContent = ''; return; }
         if (!cameraStream || cameraStream.getVideoTracks()[0]?.readyState === 'ended') {
           setStatus('error', 'Camera not available — reconnecting...');
           reconnectCamera();
@@ -522,16 +570,20 @@
         isProcessing = true;
         captureBtn.classList.add('disabled');
         flashScreen();
-        setStatus('processing', 'Analyzing...');
+        setStatus('processing', 'Analyzing & verifying (3 rounds)...');
         statusAction.textContent = '';
-
         broadcast({ type: 'loading' });
 
         try {
           const frame = captureFrame();
-          const answer = await analyzeImage(frame);
+          const { answer, confidence } = await analyzeImage(frame);
 
-          broadcast({ type: 'answer', answer: answer, timestamp: new Date().toLocaleTimeString() });
+          broadcast({
+            type: 'answer',
+            answer: answer,
+            confidence: confidence,
+            timestamp: new Date().toLocaleTimeString()
+          });
           setStatus('ready', 'Ready');
           statusAction.textContent = 'Press SPACE or tap to capture';
         } catch (err) {
@@ -550,7 +602,7 @@
         }
       }
 
-      // ── Keyboard handler ──
+      // ── Input handlers ──
       document.addEventListener('keydown', (e) => {
         if (e.code !== 'Space') return;
         if (setupEl.style.display !== 'none') return;
@@ -558,9 +610,6 @@
         handleCapture();
       });
 
-      // ── Capture button (touch + mouse) ──
-      // Uses click event only — touch-action:manipulation on the button
-      // prevents double-tap zoom without blocking click
       captureBtn.addEventListener('click', (e) => {
         e.preventDefault();
         handleCapture();

@@ -394,6 +394,73 @@ body {
   color: #555;
 }
 
+/* ── Confidence Indicator ── */
+
+.confidence-badge {
+  display: none;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin-bottom: 0.75rem;
+}
+
+.confidence-badge.visible {
+  display: inline-block;
+}
+
+.confidence-badge.high {
+  background: rgba(76, 175, 80, 0.15);
+  color: #4CAF50;
+  border: 1px solid rgba(76, 175, 80, 0.3);
+}
+
+.confidence-badge.medium {
+  background: rgba(255, 193, 7, 0.12);
+  color: #FFC107;
+  border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
+.confidence-badge.low {
+  background: rgba(239, 83, 80, 0.12);
+  color: #ef5350;
+  border: 1px solid rgba(239, 83, 80, 0.3);
+}
+
+.confidence-detail {
+  display: none;
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: #0d0d0d;
+  border: 1px solid #1a1a1a;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: #888;
+  white-space: pre-wrap;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+.confidence-detail.visible {
+  display: block;
+}
+
+.confidence-badge-small {
+  display: none;
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  background: rgba(76, 175, 80, 0.1);
+  color: #4CAF50;
+  border: 1px solid rgba(76, 175, 80, 0.2);
+  margin-bottom: 0.5rem;
+}
+
+.confidence-badge-small.visible {
+  display: inline-block;
+}
+
 /* Answer history */
 .history-section {
   margin-top: 1rem;

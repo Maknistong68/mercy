@@ -26,11 +26,13 @@
 
     <div id="spinner" class="spinner-container">
       <div class="spinner"></div>
-      <span class="spinner-text">Analyzing...</span>
+      <span class="spinner-text">Analyzing & verifying...</span>
     </div>
 
     <div id="currentAnswer" class="current-answer">
+      <div id="confidenceBadge" class="confidence-badge"></div>
       <div class="answer-text" id="answerText"></div>
+      <div id="confidenceDetail" class="confidence-detail"></div>
       <div class="timestamp" id="answerTime"></div>
     </div>
 
@@ -50,6 +52,8 @@
       const currentAnswer = document.getElementById('currentAnswer');
       const answerText = document.getElementById('answerText');
       const answerTime = document.getElementById('answerTime');
+      const confidenceBadge = document.getElementById('confidenceBadge');
+      const confidenceDetail = document.getElementById('confidenceDetail');
       const historySection = document.getElementById('historySection');
       const historyList = document.getElementById('historyList');
       const errorBanner = document.getElementById('errorBanner');
@@ -76,20 +80,22 @@
 
       if (history.length > 0) renderHistory();
 
+      // Track current confidence for history push
+      let currentConfidence = null;
+
       function persistHistory() {
         storageSet(HISTORY_KEY, JSON.stringify(history));
       }
 
-      // ── Message handler (shared between BroadcastChannel and storage fallback) ──
+      // ── Message handler ──
       function handleMessage(data) {
         if (!data || !data.type) return;
-
-        connDot.className = 'status-dot'; // green = connected
+        connDot.className = 'status-dot';
 
         if (data.type === 'loading') {
           showLoading();
         } else if (data.type === 'answer') {
-          showAnswer(data.answer, data.timestamp);
+          showAnswer(data.answer, data.timestamp, data.confidence);
         } else if (data.type === 'error') {
           showError(data.error);
         }
@@ -101,11 +107,12 @@
         errorBanner.classList.remove('visible');
       }
 
-      function showAnswer(answer, timestamp) {
+      function showAnswer(answer, timestamp, confidence) {
+        // Push previous answer to history
         const prevText = answerText.textContent;
         const prevTime = answerTime.textContent;
         if (prevText) {
-          history.unshift({ text: prevText, time: prevTime });
+          history.unshift({ text: prevText, time: prevTime, confidence: currentConfidence });
           if (history.length > MAX_HISTORY) history.pop();
           persistHistory();
           renderHistory();
@@ -117,6 +124,31 @@
         currentAnswer.classList.add('visible');
         answerText.textContent = answer;
         answerTime.textContent = timestamp;
+
+        // Confidence display
+        currentConfidence = confidence || null;
+        if (confidence) {
+          confidenceBadge.textContent = confidence.summary || '';
+          confidenceBadge.className = 'confidence-badge';
+
+          if (confidence.agreedCount === confidence.totalQuestions && confidence.totalQuestions > 0) {
+            confidenceBadge.classList.add('high', 'visible');
+          } else if (confidence.agreedCount >= confidence.totalQuestions * 0.5) {
+            confidenceBadge.classList.add('medium', 'visible');
+          } else {
+            confidenceBadge.classList.add('low', 'visible');
+          }
+
+          if (confidence.perQuestion) {
+            confidenceDetail.textContent = confidence.perQuestion;
+            confidenceDetail.classList.add('visible');
+          } else {
+            confidenceDetail.classList.remove('visible');
+          }
+        } else {
+          confidenceBadge.className = 'confidence-badge';
+          confidenceDetail.classList.remove('visible');
+        }
       }
 
       function showError(message) {
@@ -135,22 +167,36 @@
         history.forEach(item => {
           const div = document.createElement('div');
           div.className = 'history-item';
-          div.innerHTML =
-            '<div class="answer-text"></div>' +
-            '<div class="timestamp"></div>';
-          div.querySelector('.answer-text').textContent = item.text;
-          div.querySelector('.timestamp').textContent = item.time;
+
+          const badge = document.createElement('div');
+          badge.className = 'confidence-badge-small';
+          if (item.confidence && item.confidence.summary) {
+            badge.textContent = item.confidence.summary;
+            badge.classList.add('visible');
+          }
+
+          const text = document.createElement('div');
+          text.className = 'answer-text';
+          text.textContent = item.text;
+
+          const time = document.createElement('div');
+          time.className = 'timestamp';
+          time.textContent = item.time;
+
+          div.appendChild(badge);
+          div.appendChild(text);
+          div.appendChild(time);
           historyList.appendChild(div);
         });
       }
 
-      // ── BroadcastChannel (primary — works across independent windows on DeX) ──
+      // ── BroadcastChannel (primary) ──
       try {
         const channel = new BroadcastChannel('mercy_channel');
         channel.onmessage = (e) => handleMessage(e.data);
       } catch {}
 
-      // ── localStorage fallback (for browsers without BroadcastChannel) ──
+      // ── localStorage fallback ──
       window.addEventListener('storage', (e) => {
         if (e.key === 'mercy_broadcast' && e.newValue) {
           try { handleMessage(JSON.parse(e.newValue)); } catch {}
